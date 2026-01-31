@@ -291,9 +291,28 @@ class CerebrSidebar {
       const pos = result?.[SIDEBAR_POSITION_KEY];
       const left = Number(pos?.left);
       const top = Number(pos?.top);
+
+      // 验证位置值是否合理
       if (Number.isFinite(left) && Number.isFinite(top)) {
-        this.sidebarLeft = left;
-        this.sidebarTop = top;
+        // 检查位置是否在合理范围内（考虑窗口大小可能变化）
+        const maxLeft = window.innerWidth + 100;  // 允许一些超出
+        const maxTop = window.innerHeight + 100;
+        const minLeft = -500;
+        const minTop = -500;
+
+        // 如果位置明显不合理，清除保存的值
+        if (left < minLeft || left > maxLeft || top < minTop || top > maxTop) {
+          console.warn('[Sidebar] 保存的位置不合理，将使用默认位置:', { left, top });
+          // 清除不合理的保存位置
+          try {
+            await chrome.storage.local.remove(SIDEBAR_POSITION_KEY);
+          } catch {
+            // ignore
+          }
+        } else {
+          this.sidebarLeft = left;
+          this.sidebarTop = top;
+        }
       }
     } catch {
       // ignore
@@ -320,9 +339,27 @@ class CerebrSidebar {
     const fallbackHeight = Math.max(120, window.innerHeight - 40);
     if (!this.sidebar) return { width: fallbackWidth, height: fallbackHeight };
 
-    const rect = this.sidebar.getBoundingClientRect?.();
-    const width = rect?.width ? rect.width : fallbackWidth;
-    const height = rect?.height ? rect.height : fallbackHeight;
+    // 尝试获取侧边栏的实际大小
+    let width = fallbackWidth;
+    let height = fallbackHeight;
+
+    try {
+      const rect = this.sidebar.getBoundingClientRect?.();
+      // 如果 rect.width 或 rect.height 为0或很小，说明侧边栏可能是 display:none
+      if (rect && rect.width > 0 && rect.height > 0) {
+        width = rect.width;
+        height = rect.height;
+      } else {
+        // 侧边栏不可见时，使用已知的宽度和CSS定义的高度
+        width = this.sidebarWidth || fallbackWidth;
+        height = window.innerHeight - 40;  // CSS中定义的是 calc(100vh - 40px)
+      }
+    } catch {
+      // 如果获取失败，使用默认值
+      width = this.sidebarWidth || fallbackWidth;
+      height = window.innerHeight - 40;
+    }
+
     return { width, height };
   }
 
@@ -468,8 +505,10 @@ class CerebrSidebar {
         }
         .cerebr-sidebar {
           position: fixed;
-          top: 20px;
-          right: 20px;
+          left: auto;
+          top: auto;
+          right: auto;
+          bottom: auto;
           width: 430px;
           height: calc(100vh - 40px);
           background: var(--cerebr-bg-color, #ffffff);
@@ -583,13 +622,13 @@ class CerebrSidebar {
       shadow.appendChild(style);
       shadow.appendChild(this.sidebar);
 
-      // 先加载状态
-      await this.loadState();
-      this.setupIframeDragMessaging(iframe);
-
-      // 添加到文档并保护它
+      // 添加到文档并保护它（先添加到DOM，再加载状态，确保位置计算正确）
       const root = document.documentElement;
       root.appendChild(container);
+
+      // 加载状态（在添加到DOM之后，确保getBoundingClientRect返回有效值）
+      await this.loadState();
+      this.setupIframeDragMessaging(iframe);
 
       // 使用MutationObserver确保我们的元素不会被移除
       const observer = new MutationObserver((mutations) => {
@@ -607,6 +646,29 @@ class CerebrSidebar {
       observer.observe(root, {
         childList: true
       });
+
+      // 监听标签页激活事件，通知iframe重新加载对话
+      if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.onActivated) {
+        chrome.tabs.onActivated.addListener((activeInfo) => {
+          // 只在当前标签页激活时通知
+          chrome.tabs.get(activeInfo.tabId, (tab) => {
+            if (tab && tab.url && tab.url === window.location.href) {
+              this.notifyIframeTabActivated();
+            }
+          });
+        });
+      }
+
+      // 监听标签页更新事件
+      if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.onUpdated) {
+        chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+          // 只在当前标签页且状态变为complete时通知
+          if (tabId === chrome.tabs.TAB_ID_NONE || tab.url !== window.location.href) return;
+          if (changeInfo.status === 'complete') {
+            this.notifyIframeTabActivated();
+          }
+        });
+      }
 
       // console.log('侧边栏已添加到文档');
 
@@ -690,6 +752,17 @@ class CerebrSidebar {
       this.applySidebarWidth();
       this.saveWidthDebounced();
     });
+  }
+
+  notifyIframeTabActivated() {
+    if (!this.iframe || !this.iframe.contentWindow) return;
+    try {
+      this.iframe.contentWindow.postMessage({
+        type: 'TAB_ACTIVATED'
+      }, '*');
+    } catch (error) {
+      console.error('通知iframe标签页激活失败:', error);
+    }
   }
 
   toggle() {
@@ -907,7 +980,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 	            return true;
 	        }
 
-	        // 当当前页面就是 Cerebr 网页版时：快捷键由“焦点所在 UI”决定，避免与侧边栏冲突
+	        // 当当前页面就是 Cerebr 网页版时：快捷键由"焦点所在 UI"决定，避免与侧边栏冲突
 	        const isCerebrWebAppDocument = () => {
 	            return !!(
 	                document.getElementById('chat-container') &&
@@ -927,6 +1000,41 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 	        const iframe = sidebar?.sidebar?.querySelector('.cerebr-sidebar__iframe');
 	        if (iframe?.contentWindow) {
 	            iframe.contentWindow.postMessage({ type: 'NEW_CHAT' }, '*');
+	            sendResponse({ success: true });
+	        } else {
+	            sendResponse({ success: false, error: 'Sidebar iframe not found' });
+	        }
+	        return true;
+	    }
+
+	    // 处理关闭侧边栏消息
+	    if (message.type === 'TOGGLE_SIDEBAR_close') {
+	        if (sidebar && sidebar.isVisible) {
+	            sidebar.toggle();
+	            sendResponse({ success: true, status: sidebar.isVisible });
+	        } else {
+	            sendResponse({ success: false, ignored: true, reason: 'SIDEBAR_ALREADY_HIDDEN' });
+	        }
+	        return true;
+	    }
+
+	    // 处理检查侧边栏可见性
+	    if (message.type === 'CHECK_SIDEBAR_VISIBLE') {
+	        sendResponse({ visible: sidebar ? sidebar.isVisible : false });
+	        return true;
+	    }
+
+	    // 处理来自右键菜单的总结请求
+	    if (message.type === 'SUMMARIZE_FROM_CONTEXT_MENU') {
+	        if (!sidebar?.isVisible) {
+	            sendResponse({ success: false, ignored: true, reason: 'SIDEBAR_HIDDEN' });
+	            return true;
+	        }
+
+	        const iframe = sidebar?.sidebar?.querySelector('.cerebr-sidebar__iframe');
+	        if (iframe?.contentWindow) {
+	            // 转发消息到 iframe
+	            iframe.contentWindow.postMessage(message, '*');
 	            sendResponse({ success: true });
 	        } else {
 	            sendResponse({ success: false, error: 'Sidebar iframe not found' });

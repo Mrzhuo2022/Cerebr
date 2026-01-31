@@ -20,7 +20,8 @@
     "activeTab",
     "tabs",
     "tabGroups",
-    "unlimitedStorage"
+    "unlimitedStorage",
+    "contextMenus"
   ],
   "host_permissions": ["<all_urls>", "file:///*"],
   "action": {

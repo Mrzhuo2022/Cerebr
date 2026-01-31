@@ -11,6 +11,73 @@ import { t } from '../utils/i18n.js';
 import { normalizeMessageForChatCompletions } from '../utils/message-content.js';
 
 /**
+ * 使用 AI 生成对话标题
+ * @param {Object} params - 参数
+ * @param {Array<{role: string, content: string}>} params.messages - 对话消息（至少包含一个用户消息和一个助手消息）
+ * @param {APIConfig} params.apiConfig - API 配置
+ * @param {string} params.userLanguage - 用户语言
+ * @returns {Promise<string|null>} - 生成的标题，失败时返回 null
+ */
+export async function generateChatTitle({ messages, apiConfig, userLanguage }) {
+    const baseUrl = normalizeChatCompletionsUrl(apiConfig?.baseUrl);
+    if (!baseUrl || !apiConfig?.apiKey) {
+        return null;
+    }
+
+    try {
+        // 只取前几轮对话来生成标题，避免过长
+        const relevantMessages = messages.slice(0, 4).map(msg => {
+            const content = typeof msg.content === 'string' 
+                ? msg.content 
+                : (Array.isArray(msg.content) 
+                    ? msg.content.filter(p => p.type === 'text').map(p => p.text).join(' ')
+                    : '');
+            // 截取每条消息的前 200 字符
+            return `${msg.role}: ${content.slice(0, 200)}`;
+        }).join('\n');
+
+        const titlePrompt = {
+            role: 'user',
+            content: `Based on the following conversation, generate a very short title (max 6 words, in the conversation's language). Only output the title, nothing else.
+
+Conversation:
+${relevantMessages}`
+        };
+
+        const response = await fetch(baseUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiConfig.apiKey}`
+            },
+            body: JSON.stringify({
+                model: apiConfig.modelName || '',
+                messages: [titlePrompt],
+                stream: false,
+                max_tokens: 30
+            })
+        });
+
+        if (!response.ok) {
+            console.warn('[generateChatTitle] API request failed:', response.status);
+            return null;
+        }
+
+        const data = await response.json();
+        const title = data?.choices?.[0]?.message?.content?.trim();
+        
+        if (title) {
+            // 移除可能的引号包裹，限制长度
+            return title.replace(/^["'""'']+|["'""'']+$/g, '').slice(0, 50);
+        }
+        return null;
+    } catch (error) {
+        console.warn('[generateChatTitle] Failed to generate title:', error);
+        return null;
+    }
+}
+
+/**
  * 网页信息接口
  * @typedef {Object} WebpageInfo
  * @property {string} title - 网页标题
@@ -96,7 +163,7 @@ export async function callAPI({
             'Authorization': `Bearer ${apiConfig.apiKey}`
         },
         body: JSON.stringify({
-            model: apiConfig.modelName || "gpt-4o",
+            model: apiConfig.modelName || '',
             messages: processedMessages,
             stream: true,
         }),

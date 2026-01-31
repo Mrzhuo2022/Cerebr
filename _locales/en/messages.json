@@ -33,6 +33,7 @@
   "title_api_settings": { "message": "API settings" },
   "api_key_label": { "message": "API key" },
   "api_key_placeholder": { "message": "Enter API key" },
+  "api_toggle_key_aria": { "message": "Toggle API key visibility" },
   "base_url_label": { "message": "Base URL" },
   "base_url_placeholder": { "message": "Enter Base URL" },
   "model_name_label": { "message": "Model name" },
@@ -41,6 +42,7 @@
   "api_delete_config_aria": { "message": "Delete this config" },
   "api_advanced_settings": { "message": "Advanced settings" },
   "api_system_prompt_label": { "message": "System prompt" },
+  "api_fetch_models_title": { "message": "Fetch model list" },
 
   "title_preferences": { "message": "Preferences" },
   "preferences_version": { "message": "Version" },
@@ -119,5 +121,10 @@
   "error_read_image_failed": { "message": "Failed to read image" },
   "error_parse_image_failed": { "message": "Failed to parse image" },
   "error_not_image_file": { "message": "Not an image file" },
-  "error_image_too_large": { "message": "Image is too large. Please compress or crop it before sending." }
+  "error_image_too_large": { "message": "Image is too large. Please compress or crop it before sending." },
+
+  "top_toolbar_aria": { "message": "Top toolbar" },
+  "new_chat_quick_aria": { "message": "New chat" },
+  "close_sidebar_aria": { "message": "Close sidebar" },
+  "context_menu_summarize": { "message": "Summarize webpage content" }
 }

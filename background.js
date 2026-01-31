@@ -26,8 +26,13 @@ self.addEventListener('activate', (event) => {
 // 按需注入 PDF.js：避免每个页面都加载 300KB+ 的库
 const pdfJsInjectedTabs = new Set();
 
-// YouTube timedtext URL 缓存：从 webRequest 捕获“带签名的完整 URL”，避免自行构造参数
+// 标签页连接状态跟踪：tabId -> { connected: boolean, lastPing: number }
+const tabConnectionState = new Map();
+
+// YouTube timedtext URL 缓存：从 webRequest 捕获"带签名的完整 URL"，避免自行构造参数
 const ytTimedTextUrlByTabAndVideo = new Map(); // key: `${tabId}:${videoId}` -> { url, createdAt }
+// 按标签页索引的 timedtext 缓存：tabId -> Set<videoId>，用于快速清理
+const ytTimedTextIndexByTab = new Map(); // tabId -> Set<videoId>
 const YT_TIMEDTEXT_TTL_MS = 10 * 60 * 1000;
 
 function ytTimedTextKey(tabId, videoId) {
@@ -36,9 +41,23 @@ function ytTimedTextKey(tabId, videoId) {
 
 function pruneYouTubeTimedTextCache() {
   const now = Date.now();
+  const expiredKeys = [];
   for (const [key, value] of ytTimedTextUrlByTabAndVideo.entries()) {
     if (!value?.createdAt || now - value.createdAt > YT_TIMEDTEXT_TTL_MS) {
-      ytTimedTextUrlByTabAndVideo.delete(key);
+      expiredKeys.push(key);
+    }
+  }
+  for (const key of expiredKeys) {
+    const value = ytTimedTextUrlByTabAndVideo.get(key);
+    ytTimedTextUrlByTabAndVideo.delete(key);
+    // 从索引中移除
+    if (value) {
+      const [tabId, videoId] = key.split(':');
+      const tabVideos = ytTimedTextIndexByTab.get(Number(tabId));
+      if (tabVideos) {
+        tabVideos.delete(videoId);
+        if (tabVideos.size === 0) ytTimedTextIndexByTab.delete(Number(tabId));
+      }
     }
   }
   // Hard cap to avoid unbounded growth
@@ -46,8 +65,26 @@ function pruneYouTubeTimedTextCache() {
   if (ytTimedTextUrlByTabAndVideo.size > MAX_ENTRIES) {
     const entries = Array.from(ytTimedTextUrlByTabAndVideo.entries());
     entries.sort((a, b) => (b[1]?.createdAt || 0) - (a[1]?.createdAt || 0));
-    entries.slice(MAX_ENTRIES).forEach(([k]) => ytTimedTextUrlByTabAndVideo.delete(k));
+    for (const [k] of entries.slice(MAX_ENTRIES)) {
+      ytTimedTextUrlByTabAndVideo.delete(k);
+      const [tabId, videoId] = k.split(':');
+      const tabVideos = ytTimedTextIndexByTab.get(Number(tabId));
+      if (tabVideos) {
+        tabVideos.delete(videoId);
+        if (tabVideos.size === 0) ytTimedTextIndexByTab.delete(Number(tabId));
+      }
+    }
   }
+}
+
+// 从缓存中移除指定标签页的所有条目
+function clearYouTubeTimedTextForTab(tabId) {
+  const tabVideos = ytTimedTextIndexByTab.get(tabId);
+  if (!tabVideos) return;
+  for (const videoId of tabVideos) {
+    ytTimedTextUrlByTabAndVideo.delete(ytTimedTextKey(tabId, videoId));
+  }
+  ytTimedTextIndexByTab.delete(tabId);
 }
 
 try {
@@ -64,6 +101,13 @@ try {
           url: url.toString(),
           createdAt: Date.now()
         });
+        // 更新索引
+        let tabVideos = ytTimedTextIndexByTab.get(details.tabId);
+        if (!tabVideos) {
+          tabVideos = new Set();
+          ytTimedTextIndexByTab.set(details.tabId, tabVideos);
+        }
+        tabVideos.add(videoId);
         pruneYouTubeTimedTextCache();
       } catch {
         // ignore
@@ -77,23 +121,15 @@ try {
 
 chrome.tabs?.onRemoved?.addListener?.((tabId) => {
   pdfJsInjectedTabs.delete(tabId);
-  // 清理该 tab 的 timedtext 缓存
-  for (const key of ytTimedTextUrlByTabAndVideo.keys()) {
-    if (key.startsWith(`${tabId}:`)) {
-      ytTimedTextUrlByTabAndVideo.delete(key);
-    }
-  }
+  tabConnectionState.delete(tabId);
+  clearYouTubeTimedTextForTab(tabId);
 });
 
 chrome.tabs?.onUpdated?.addListener?.((tabId, changeInfo) => {
   if (changeInfo?.status === 'loading') {
     pdfJsInjectedTabs.delete(tabId);
-    // 页面刷新/跳转后清理该 tab 的 timedtext 缓存（新视频会产生新 URL）
-    for (const key of ytTimedTextUrlByTabAndVideo.keys()) {
-      if (key.startsWith(`${tabId}:`)) {
-        ytTimedTextUrlByTabAndVideo.delete(key);
-      }
-    }
+    tabConnectionState.delete(tabId);
+    clearYouTubeTimedTextForTab(tabId);
   }
 });
 
@@ -111,18 +147,6 @@ async function ensurePdfJsInjected(tabId) {
   } catch (error) {
     return { success: false, error: error?.message || String(error) };
   }
-}
-
-function checkCustomShortcut(callback) {
-  chrome.commands.getAll((commands) => {
-      const toggleCommand = commands.find(command => command.name === '_execute_action' || command.name === '_execute_browser_action');
-      if (toggleCommand && toggleCommand.shortcut) {
-          console.log('当前设置的快捷键:', toggleCommand.shortcut);
-          // 直接获取最后一个字符并转换为小写
-          const lastLetter = toggleCommand.shortcut.charAt(toggleCommand.shortcut.length - 1).toLowerCase();
-          callback(lastLetter);
-      }
-  });
 }
 
 // 重新注入 content script 并等待连接
@@ -147,6 +171,38 @@ async function reinjectContentScript(tabId) {
   }
 }
 
+// 统一的消息发送函数：自动处理重连和重试
+async function sendMessageToTab(tabId, message, options = {}) {
+  const { retry = true } = options;
+
+  try {
+    let isConnected = tabConnectionState.get(tabId)?.connected || await isTabConnected(tabId);
+
+    if (!isConnected && retry) {
+      isConnected = await reinjectContentScript(tabId);
+    }
+
+    if (!isConnected) {
+      return { success: false, error: 'Tab not connected' };
+    }
+
+    return await chrome.tabs.sendMessage(tabId, message);
+  } catch (error) {
+    if (retry) {
+      // 尝试重新注入并重试一次
+      const reconnected = await reinjectContentScript(tabId);
+      if (reconnected) {
+        try {
+          return await chrome.tabs.sendMessage(tabId, message);
+        } catch (retryError) {
+          return { success: false, error: retryError.message };
+        }
+      }
+    }
+    return { success: false, error: error.message };
+  }
+}
+
 // 处理标签页连接和消息发送的通用函数
 async function handleTabCommand(commandType) {
   try {
@@ -155,17 +211,7 @@ async function handleTabCommand(commandType) {
       console.log('没有找到活动标签页');
       return;
     }
-
-    // 检查标签页是否已连接
-    const isConnected = await isTabConnected(tab.id);
-    if (!isConnected && await reinjectContentScript(tab.id)) {
-      await chrome.tabs.sendMessage(tab.id, { type: commandType });
-      return;
-    }
-
-    if (isConnected) {
-      await chrome.tabs.sendMessage(tab.id, { type: commandType });
-    }
+    await sendMessageToTab(tab.id, { type: commandType });
   } catch (error) {
     console.error(`处理${commandType}命令失败:`, error);
   }
@@ -174,20 +220,7 @@ async function handleTabCommand(commandType) {
 // 监听扩展图标点击
 chrome.action.onClicked.addListener(async (tab) => {
   console.log('扩展图标被点击');
-  try {
-    // 检查标签页是否已连接
-    const isConnected = await isTabConnected(tab.id);
-    if (!isConnected && await reinjectContentScript(tab.id)) {
-      await chrome.tabs.sendMessage(tab.id, { type: 'TOGGLE_SIDEBAR_onClicked' });
-      return;
-    }
-
-    if (isConnected) {
-      await chrome.tabs.sendMessage(tab.id, { type: 'TOGGLE_SIDEBAR_onClicked' });
-    }
-  } catch (error) {
-    console.error('处理切换失败:', error);
-  }
+  await sendMessageToTab(tab.id, { type: 'TOGGLE_SIDEBAR_onClicked' });
 });
 
 // 简化后的命令监听器
@@ -429,23 +462,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           return;
         }
 
-        let isConnected = await isTabConnected(tabIdToQuery);
-        if (!isConnected) {
-            // 如果未连接，尝试重新注入脚本
-            console.log(`Tab ${tabIdToQuery} not connected, attempting to reinject content script.`);
-            isConnected = await reinjectContentScript(tabIdToQuery);
-        }
-
-        if (isConnected) {
-          const response = await chrome.tabs.sendMessage(tabIdToQuery, {
-            type: 'GET_PAGE_CONTENT_INTERNAL',
-            skipWaitContent: message.skipWaitContent || false
-          });
-          sendResponse(response);
-        } else {
-          console.warn(`Tab ${tabIdToQuery} is still not connected, even after attempting to reinject.`);
-          sendResponse(null);
-        }
+        const response = await sendMessageToTab(tabIdToQuery, {
+          type: 'GET_PAGE_CONTENT_INTERNAL',
+          skipWaitContent: message.skipWaitContent || false
+        });
+        sendResponse(response.success === false ? null : response);
       } catch (error) {
         console.error(`Error in GET_PAGE_CONTENT_FROM_SIDEBAR for tab ${message.tabId}:`, error);
         sendResponse(null);
@@ -493,6 +514,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  // 处理关闭侧边栏请求
+  if (message.type === 'CLOSE_SIDEBAR') {
+    (async () => {
+      try {
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (!tab) {
+          sendResponse({ success: false, error: 'No active tab' });
+          return;
+        }
+        const result = await sendMessageToTab(tab.id, { type: 'TOGGLE_SIDEBAR_close' });
+        sendResponse(result.success ? { success: true } : result);
+      } catch (error) {
+        console.error('Failed to close sidebar:', error);
+        sendResponse({ success: false, error: error.message });
+      }
+    })();
+    return true;
+  }
+
   return false;
 });
 
@@ -513,9 +553,67 @@ const keepAliveInterval = setInterval(() => {
 
 self.addEventListener('beforeunload', () => clearInterval(keepAliveInterval));
 
-// 简化初始化检查
+// 简化初始化检查和注册右键菜单
 chrome.runtime.onInstalled.addListener(() => {
     console.log('扩展已安装/更新:', new Date().toISOString());
+
+    // 注册右键菜单
+    chrome.contextMenus.create({
+        id: 'cerebr_summarize_content',
+        title: chrome.i18n.getMessage('context_menu_summarize'),
+        contexts: ['selection', 'page']
+    }, () => {
+        if (chrome.runtime.lastError) {
+            console.error('创建右键菜单失败:', chrome.runtime.lastError);
+        }
+    });
+});
+
+// 监听右键菜单点击事件
+chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+    if (info.menuItemId === 'cerebr_summarize_content') {
+        try {
+            // 检查是否是特殊页面
+            if (tab.url && (tab.url.startsWith('chrome://') ||
+                           tab.url.startsWith('edge://') ||
+                           tab.url.startsWith('about:') ||
+                           tab.url.startsWith('chrome-extension://'))) {
+                console.log('特殊页面，不支持总结功能');
+                return;
+            }
+
+            // 打开侧边栏（如果未打开）
+            const sidebarCheck = await chrome.tabs.sendMessage(tab.id, {
+                type: 'CHECK_SIDEBAR_VISIBLE'
+            }).catch(() => ({ visible: false }));
+
+            if (!sidebarCheck.visible) {
+                await sendMessageToTab(tab.id, { type: 'TOGGLE_SIDEBAR_onClicked' });
+                // 等待侧边栏 iframe 就绪
+                for (let i = 0; i < 10; i++) {
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                    const ready = await chrome.tabs.sendMessage(tab.id, {
+                        type: 'CHECK_SIDEBAR_VISIBLE'
+                    }).catch(() => ({ visible: false }));
+                    if (ready.visible) break;
+                }
+            }
+
+            // 发送总结请求到侧边栏，包含网页信息
+            await chrome.tabs.sendMessage(tab.id, {
+                type: 'SUMMARIZE_FROM_CONTEXT_MENU',
+                selectionText: info.selectionText || null,
+                pageInfo: {
+                    url: tab.url,
+                    title: tab.title,
+                    tabId: tab.id
+                }
+            });
+
+        } catch (error) {
+            console.error('处理右键菜单点击失败:', error);
+        }
+    }
 });
 
 // 改进标签页连接检查
@@ -540,12 +638,31 @@ const MAX_PDF_CACHE_TOTAL_BYTES = 256 * 1024 * 1024;
 /** @type {Map<string, {arrayBuffer: ArrayBuffer, totalSize: number, totalChunks: number, chunkSize: number, createdAt: number, lastAccessed: number, url: string}>} */
 const pdfCache = new Map();
 
+// 使用双向链表实现真正的 LRU 缓存
+let lruHead = null;
+let lruTail = null;
+
 function touchPdfCacheEntry(requestId) {
   const entry = pdfCache.get(requestId);
   if (!entry) return null;
+
   entry.lastAccessed = Date.now();
-  pdfCache.delete(requestId);
-  pdfCache.set(requestId, entry);
+
+  // 将访问的条目移到链表头部（MRU位置）
+  if (entry !== lruHead) {
+    // 从当前位置移除
+    if (entry.prev) entry.prev.next = entry.next;
+    if (entry.next) entry.next.prev = entry.prev;
+    if (entry === lruTail) lruTail = entry.prev;
+
+    // 添加到头部
+    entry.prev = null;
+    entry.next = lruHead;
+    if (lruHead) lruHead.prev = entry;
+    lruHead = entry;
+    if (!lruTail) lruTail = entry;
+  }
+
   return entry;
 }
 
@@ -559,10 +676,35 @@ function getPdfCacheTotalBytes() {
 
 function evictPdfCacheIfNeeded() {
   while (pdfCache.size > MAX_PDF_CACHE_ENTRIES || (pdfCache.size > 1 && getPdfCacheTotalBytes() > MAX_PDF_CACHE_TOTAL_BYTES)) {
+    // 移除最久未使用的条目（链表尾部）
+    if (!lruTail) break;
+
     const oldestKey = pdfCache.keys().next().value;
     if (!oldestKey) break;
+
+    // 更新链表
+    if (lruTail.prev) {
+      lruTail.prev.next = null;
+      lruTail = lruTail.prev;
+    } else {
+      lruHead = lruTail = null;
+    }
+
     pdfCache.delete(oldestKey);
   }
+}
+
+function addPdfCacheEntry(requestId, entry) {
+  pdfCache.set(requestId, entry);
+
+  // 添加到链表头部
+  entry.prev = null;
+  entry.next = lruHead;
+  if (lruHead) lruHead.prev = entry;
+  lruHead = entry;
+  if (!lruTail) lruTail = entry;
+
+  evictPdfCacheIfNeeded();
 }
 
 // 添加公共的PDF文件获取函数
@@ -616,16 +758,19 @@ async function downloadPDF(url) {
         ? self.crypto.randomUUID()
         : `${Date.now()}_${Math.random().toString(16).slice(2)}`;
 
-      pdfCache.set(requestId, {
+      const entry = {
         arrayBuffer,
         totalSize,
         totalChunks,
         chunkSize: PDF_CHUNK_SIZE,
         createdAt: Date.now(),
         lastAccessed: Date.now(),
-        url
-      });
-      evictPdfCacheIfNeeded();
+        url,
+        prev: null,
+        next: null
+      };
+
+      addPdfCacheEntry(requestId, entry);
 
       return {
         success: true,

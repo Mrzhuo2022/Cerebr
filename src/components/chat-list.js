@@ -107,15 +107,27 @@ export async function loadChatContent(chat, chatContainer) {
     chatContainer.innerHTML = '';
     // 确定要遍历的消息范围
     const messages = chat.messages;
+    let isFirstUserMessage = true;
 
     for (let i = 0; i < messages.length; i++) {
         const message = messages[i];
         if (message.content) {
+            const isUser = message.role === 'user';
+            // 只在第一条用户消息上显示网页来源
+            const webpageSource = (isUser && isFirstUserMessage && chat.webpageSource) 
+                ? chat.webpageSource 
+                : null;
+            
+            if (isUser) {
+                isFirstUserMessage = false;
+            }
+
             await appendMessage({
                 text: message,
-                sender: message.role === 'user' ? 'user' : 'ai',
+                sender: isUser ? 'user' : 'ai',
                 chatContainer,
                 skipHistory: true,
+                webpageSource
             });
         }
     }
@@ -134,6 +146,7 @@ async function loadChatContentIncremental(chat, chatContainer, token) {
     let index = 0;
     const myToken = token;
     let hasRenderedAny = false;
+    let isFirstUserMessage = true;
 
     const renderChunk = async (deadline) => {
         if (myToken !== chatContentToken) return;
@@ -158,12 +171,23 @@ async function loadChatContentIncremental(chat, chatContainer, token) {
             const message = messages[index++];
             if (!message?.content) continue;
 
+            const isUser = message.role === 'user';
+            // 只在第一条用户消息上显示网页来源
+            const webpageSource = (isUser && isFirstUserMessage && chat.webpageSource) 
+                ? chat.webpageSource 
+                : null;
+            
+            if (isUser) {
+                isFirstUserMessage = false;
+            }
+
             const element = await appendMessage({
                 text: message,
-                sender: message.role === 'user' ? 'user' : 'ai',
+                sender: isUser ? 'user' : 'ai',
                 chatContainer,
                 skipHistory: true,
-                fragment
+                fragment,
+                webpageSource
             });
             nodes.push(element);
             rendered++;
@@ -327,6 +351,16 @@ export function initializeChatList({
     apiSettings
 }) {
     const messageInput = document.getElementById('message-input');
+    const chatCards = chatListPage.querySelector('.chat-cards');
+
+    // 监听新对话创建事件（来自右键菜单等）
+    document.addEventListener('cerebr:chatCreated', () => {
+        // 如果对话列表正在显示，刷新列表
+        if (chatListPage.classList.contains('show')) {
+            scheduleWork(() => renderChatListIncremental(chatManager, chatCards));
+        }
+    });
+
     // 新建对话按钮点击事件
     newChatButton.addEventListener('click', async () => {
         const currentChat = chatManager.getCurrentChat();
@@ -351,7 +385,6 @@ export function initializeChatList({
     // 对话列表按钮点击事件
     chatListButton.addEventListener('click', () => {
         const searchInput = document.getElementById('chat-search-input');
-        const chatCards = chatListPage.querySelector('.chat-cards');
         if (searchInput) searchInput.value = ''; // 清空搜索框
 
         // Show UI first, then render incrementally off the click task.
@@ -365,7 +398,6 @@ export function initializeChatList({
     // 搜索框事件
     const searchInput = document.getElementById('chat-search-input');
     const clearSearchBtn = chatListPage.querySelector('.clear-search-btn');
-    const chatCards = chatListPage.querySelector('.chat-cards');
 
     let searchTimer = null;
     let lastSearchTerm = '';

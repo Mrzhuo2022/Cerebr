@@ -1,5 +1,5 @@
 import { setTheme } from './utils/theme.js';
-import { callAPI } from './services/chat.js';
+import { callAPI, generateChatTitle } from './services/chat.js';
 import { chatManager } from './utils/chat-manager.js';
 import { appendMessage } from './handlers/message-handler.js';
 import { hideContextMenu } from './components/context-menu.js';
@@ -21,6 +21,7 @@ import { ensureChatElementVisible, syncChatBottomExtraPadding } from './utils/sc
 import { createReadingProgressManager } from './utils/reading-progress.js';
 import { applyI18n, initI18n, getLanguagePreference, setLanguagePreference, reloadI18n, t } from './utils/i18n.js';
 import { setWebpageSwitchesForChat } from './utils/webpage-switches.js';
+import { initializeToolbar } from './components/toolbar.js';
 
 // 存储用户的问题历史
 let userQuestions = [];
@@ -32,6 +33,10 @@ let selectedConfigIndex = 0;
 
 document.addEventListener('DOMContentLoaded', async () => {
     try {
+        // 等待聊天管理器初始化完成，确保所有历史对话都已加载
+        await chatManager.ready();
+        console.log('[Cerebr] ChatManager 已就绪');
+
         await initI18n();
         applyI18n(document);
 
@@ -65,6 +70,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (!chatContainer || !messageInput || !contextMenu) {
             console.error('[Cerebr] 初始化失败：缺少 #chat-container / #message-input / #context-menu');
             return;
+        }
+
+        // 初始化顶部工具栏
+        try {
+            initializeToolbar();
+        } catch (error) {
+            console.error('[Toolbar] 初始化失败:', error);
         }
 
         const isNearBottom = (container, thresholdPx = 120) => {
@@ -311,6 +323,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (!el) return false;
             if (el.closest('.message')) return false;
             if (el.closest('#scroll-to-bottom')) return false;
+            if (el.closest('#top-toolbar')) return false;
             if (el.closest('#settings-button, #settings-menu, #context-menu, a, button, input, textarea, select')) return false;
             return true;
         };
@@ -656,7 +669,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         handleWindowMessage(event, {
             messageInput,
             newChatButton,
-            uiConfig
+            uiConfig,
+            chatContainer,
+            chatManager
         });
     });
 
@@ -888,11 +903,19 @@ document.addEventListener('DOMContentLoaded', async () => {
                 content: content
             };
 
+            // 获取当前对话的网页来源信息（仅用于首条消息显示）
+            const currentChat = chatManager.getCurrentChat();
+            const isFirstMessage = currentChat && currentChat.messages.length === 0;
+            const webpageSource = isFirstMessage && currentChat?.webpageSource 
+                ? currentChat.webpageSource 
+                : null;
+
             // 先添加用户消息到界面和历史记录
             appendMessage({
                 text: userMessage,
                 sender: 'user',
                 chatContainer,
+                webpageSource
             });
 
             // 清空输入框并调整高度
@@ -901,7 +924,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             setThinkingPlaceholder();
 
             // 构建消息数组
-            const currentChat = chatManager.getCurrentChat();
             if (currentChat?.id) {
                 await storageAdapter.remove(draftKeyForChatId(currentChat.id));
             }
@@ -941,6 +963,35 @@ document.addEventListener('DOMContentLoaded', async () => {
             await callAPIWithRetry(apiParams, chatManager, currentChat.id, onMessageUpdate);
             await chatManager.flushNow().catch(() => {});
             await readingProgressManager.saveNow().catch(() => {});
+
+            // 在第一轮对话完成后，使用 AI 生成对话标题
+            const chatAfterReply = chatManager.getCurrentChat();
+            if (chatAfterReply && chatAfterReply.messages.length === 2 && isFirstMessage) {
+                // 异步生成标题，不阻塞主流程
+                void (async () => {
+                    try {
+                        const generatedTitle = await generateChatTitle({
+                            messages: chatAfterReply.messages,
+                            apiConfig: apiConfigs[selectedConfigIndex],
+                            userLanguage: navigator.language
+                        });
+                        if (generatedTitle && chatAfterReply.id === chatManager.getCurrentChat()?.id) {
+                            chatAfterReply.title = generatedTitle;
+                            chatManager.saveChats();
+                            // 更新聊天列表中的标题显示
+                            const chatCard = document.querySelector(`.chat-card[data-chat-id="${chatAfterReply.id}"]`);
+                            if (chatCard) {
+                                const titleElement = chatCard.querySelector('.chat-title');
+                                if (titleElement) {
+                                    titleElement.textContent = generatedTitle;
+                                }
+                            }
+                        }
+                    } catch (e) {
+                        console.warn('[sendMessage] 生成标题失败:', e);
+                    }
+                })();
+            }
 
         } catch (error) {
             if (error.name === 'AbortError') {
@@ -1704,10 +1755,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         const normalized = { ...(config || {}) };
         ensureConfigId(normalized);
         normalized.apiKey = normalized.apiKey ?? '';
-        normalized.baseUrl = normalizeChatCompletionsUrl(
-            normalized.baseUrl ?? 'https://api.0-0.pro/v1/chat/completions'
-        ) || 'https://api.0-0.pro/v1/chat/completions';
-        normalized.modelName = normalized.modelName ?? 'gpt-4o';
+        normalized.baseUrl = normalized.baseUrl 
+            ? (normalizeChatCompletionsUrl(normalized.baseUrl) || normalized.baseUrl)
+            : '';
+        normalized.modelName = normalized.modelName ?? '';
         normalized.advancedSettings = {
             ...(normalized.advancedSettings || {}),
             systemPrompt: normalized.advancedSettings?.systemPrompt ?? '',
@@ -1876,8 +1927,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                 apiConfigs.splice(0, apiConfigs.length, {
                     id: generateConfigId(),
                     apiKey: '',
-                    baseUrl: 'https://api.0-0.pro/v1/chat/completions',
-                    modelName: 'gpt-4o',
+                    baseUrl: '',
+                    modelName: '',
                     advancedSettings: {
                         systemPrompt: '',
                         isExpanded: false,
@@ -1956,8 +2007,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             apiConfigs.splice(0, apiConfigs.length, {
                 id: generateConfigId(),
                 apiKey: '',
-                baseUrl: 'https://api.0-0.pro/v1/chat/completions',
-                modelName: 'gpt-4o',
+                baseUrl: '',
+                modelName: '',
                 advancedSettings: {
                     systemPrompt: '',
                     isExpanded: false,

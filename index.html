@@ -22,6 +22,19 @@
     <link rel="stylesheet" href="styles/main.css">
 </head>
 <body>
+    <div id="top-toolbar" role="toolbar" aria-label="顶部工具栏" data-i18n-attr="aria-label:top_toolbar_aria">
+        <button id="new-chat-quick" type="button" aria-label="新建对话" data-i18n-attr="aria-label:new_chat_quick_aria" title="新建对话">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 5v14M5 12h14"/>
+            </svg>
+        </button>
+        <div class="toolbar-spacer"></div>
+        <button id="close-button" type="button" aria-label="关闭侧边栏" data-i18n-attr="aria-label:close_sidebar_aria" title="关闭侧边栏">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M18 6L6 18M6 6l12 12"/>
+            </svg>
+        </button>
+    </div>
     <div id="chat-container"></div>
     <button id="scroll-to-bottom" type="button" tabindex="-1" aria-hidden="true" aria-label="滚动到底部" data-i18n-attr="aria-label:aria_scroll_to_bottom">
         <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -154,6 +167,15 @@
                             <div class="form-group-header">
                                 <label data-i18n="api_key_label">API Key</label>
                                 <div class="card-actions">
+                                    <button class="card-button toggle-api-key-btn" aria-label="显示/隐藏 API Key" data-i18n-attr="aria-label:api_toggle_key_aria">
+                                        <svg class="eye-icon" width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                            <path d="M8 3C4.5 3 1.73 5.61 1 9c.73 3.39 3.5 6 7 6s6.27-2.61 7-6c-.73-3.39-3.5-6-7-6zm0 10c-2.21 0-4-1.79-4-4s1.79-4 4-4 4 1.79 4 4-1.79 4-4 4zm0-6.5c-1.38 0-2.5 1.12-2.5 2.5s1.12 2.5 2.5 2.5 2.5-1.12 2.5-2.5-1.12-2.5-2.5-2.5z"/>
+                                        </svg>
+                                        <svg class="eye-off-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" style="display: none;">
+                                            <path d="M8 3c-3.5 0-6.27 2.61-7 6 .73 3.39 3.5 6 7 6s6.27-2.61 7-6c-.73-3.39-3.5-6-7-6zm0 10c-2.21 0-4-1.79-4-4s1.79-4 4-4 4 1.79 4 4-1.79 4-4 4zm0-6.5c-1.38 0-2.5 1.12-2.5 2.5s1.12 2.5 2.5 2.5 2.5-1.12 2.5-2.5-1.12-2.5-2.5-2.5z" opacity="0.3"/>
+                                            <path d="M1.5 1.5l13 13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                                        </svg>
+                                    </button>
                                     <button class="card-button duplicate-btn" aria-label="复制该配置" data-i18n-attr="aria-label:api_duplicate_config_aria">
                                         <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
                                             <path d="M13 5H7V11H13V5Z" stroke="currentColor" stroke-width="1.5"/>
@@ -168,15 +190,28 @@
                                     </button>
                                 </div>
                             </div>
-                            <input type="text" class="api-key" placeholder="输入 API Key" data-i18n-attr="placeholder:api_key_placeholder">
+                            <div class="api-key-wrapper">
+                                <input type="password" class="api-key" placeholder="输入 API Key" data-i18n-attr="placeholder:api_key_placeholder">
+                            </div>
                         </div>
                         <div class="form-group">
                             <label data-i18n="base_url_label">Base URL</label>
                             <input type="text" class="base-url" placeholder="输入 Base URL" data-i18n-attr="placeholder:base_url_placeholder">
                         </div>
                         <div class="form-group">
-                            <label data-i18n="model_name_label">Model Name</label>
-                            <input type="text" class="model-name" placeholder="输入模型名称" data-i18n-attr="placeholder:model_name_placeholder">
+                            <div class="form-group-header">
+                                <label data-i18n="model_name_label">Model Name</label>
+                                <button class="card-button fetch-models-btn" title="获取模型列表" data-i18n-attr="title:api_fetch_models_title">
+                                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                        <path d="M8 3V13M3 8H13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                                    </svg>
+                                </button>
+                            </div>
+                            <div class="model-select-wrapper">
+                                <select class="model-name">
+                                    <option value="" disabled selected data-i18n="model_name_placeholder">输入模型名称</option>
+                                </select>
+                            </div>
                         </div>
                         <div class="advanced-settings">
                             <div class="advanced-settings-header" tabindex="0">

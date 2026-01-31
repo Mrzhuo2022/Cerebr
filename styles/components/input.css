@@ -23,7 +23,7 @@
 
 #message-input {
     width: 100%;
-    padding: 12px;
+    padding: 8px 12px;
     border: none;
     background-color: transparent;
     color: var(--cerebr-text-color);

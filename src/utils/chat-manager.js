@@ -31,7 +31,14 @@ export class ChatManager {
         this._savePromise = null;
         this._savePromiseResolve = null;
         this._savePromiseReject = null;
-        this.initialize();
+        this._initialized = false;
+        this._initializePromise = this.initialize();
+    }
+
+    async ready() {
+        if (!this._initialized) {
+            await this._initializePromise;
+        }
     }
 
     _nextTick() {
@@ -176,6 +183,9 @@ export class ChatManager {
                 ...(isExtensionEnvironment ? { [LAST_ACTIVE_CHAT_ID_KEY]: this.currentChatId } : {})
             });
         }
+
+        this._initialized = true;
+        console.log('[ChatManager] 初始化完成，已加载', this.chats.size, '个对话');
     }
 
     createNewChat(title = '新对话') {

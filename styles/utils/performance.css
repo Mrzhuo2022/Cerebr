@@ -1,0 +1,252 @@
+/**
+ * 性能优化动画样式
+ * 使用 GPU 加速和减少重绘
+ */
+
+/* 消息容器滚动优化 */
+#chat-container {
+    /* 启用 GPU 加速滚动 */
+    will-change: scroll-position;
+    /* 使用合成层 */
+    transform: translateZ(0);
+    /* 平滑滚动 */
+    scroll-behavior: smooth;
+    /* 启用硬件加速 */
+    -webkit-overflow-scrolling: touch;
+}
+
+/* 消息动画优化 */
+.message {
+    /* 仅在需要时启用 will-change */
+    will-change: auto;
+    /* 使用 transform 代替 top/left */
+    transform: translateZ(0);
+}
+
+/* 批量加载时禁用入场动画，但保留 show 过渡 */
+.message.batch-load {
+    animation: none !important;
+    opacity: 0;
+    transform: translateY(12px) scale(0.98) translateZ(0);
+    /* 保留 opacity/transform 过渡以支持 .show 类 */
+    transition: opacity 0.25s ease-out, transform 0.25s ease-out;
+}
+
+.message.batch-load.show {
+    opacity: 1;
+    transform: translateY(0) scale(1) translateZ(0);
+}
+
+/* 设置菜单动画优化 */
+#settings-menu {
+    /* 使用 transform 和 opacity 进行动画 */
+    will-change: transform, opacity;
+    transform: translateY(-4px) scale(0.98);
+    opacity: 0;
+    transition: transform 0.15s ease-out, opacity 0.15s ease-out;
+    pointer-events: none;
+}
+
+#settings-menu.visible {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+    pointer-events: auto;
+}
+
+/* 侧边栏拖动优化 */
+.cerebr-sidebar {
+    will-change: transform;
+    transform: translateX(0);
+}
+
+.cerebr-sidebar.dragging {
+    /* 拖动时临时提升层级 */
+    will-change: transform, left, right;
+}
+
+/* 图片预览动画优化 */
+.image-preview-modal {
+    will-change: opacity;
+    transition: opacity 0.2s ease-out;
+}
+
+.image-preview-modal img {
+    will-change: transform;
+    transition: transform 0.2s ease-out;
+}
+
+/* 上下文菜单动画优化 */
+#context-menu {
+    will-change: transform, opacity;
+    transform: scale(0.95);
+    opacity: 0;
+    transition: transform 0.12s ease-out, opacity 0.12s ease-out;
+}
+
+#context-menu.visible {
+    transform: scale(1);
+    opacity: 1;
+}
+
+/* Toast 动画优化 */
+.toast {
+    will-change: transform, opacity;
+    transform: translateX(-50%) translateY(20px);
+    opacity: 0;
+    transition: transform 0.25s ease-out, opacity 0.25s ease-out;
+}
+
+.toast.visible {
+    transform: translateX(-50%) translateY(0);
+    opacity: 1;
+}
+
+.toast.hiding {
+    transform: translateX(-50%) translateY(-10px);
+    opacity: 0;
+}
+
+/* 代码块语法高亮优化 - 避免重绘 */
+pre code {
+    /* 启用文本渲染优化 */
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/* 输入框优化 */
+#message-input {
+    /* 仅在焦点时启用 will-change */
+    will-change: auto;
+}
+
+#message-input:focus {
+    will-change: height;
+}
+
+/* 按钮交互优化 */
+button,
+.icon-button {
+    /* 使用 transform 进行交互反馈 */
+    transition: transform 0.1s ease-out, background-color 0.15s ease-out;
+}
+
+button:active,
+.icon-button:active {
+    transform: scale(0.96);
+}
+
+/* 滚动到底部按钮优化 */
+#scroll-to-bottom {
+    will-change: transform, opacity;
+    transform: translateY(8px);
+    opacity: 0;
+    transition: transform 0.2s ease-out, opacity 0.2s ease-out;
+    pointer-events: none;
+}
+
+#scroll-to-bottom.visible {
+    transform: translateY(0);
+    opacity: 1;
+    pointer-events: auto;
+}
+
+/* 聊天列表动画优化 */
+#chat-list-page {
+    will-change: transform;
+    transform: translateX(-100%);
+    transition: transform 0.25s ease-out;
+}
+
+#chat-list-page.show {
+    transform: translateX(0);
+}
+
+/* API 设置页面动画优化 */
+#api-settings,
+#preferences-settings {
+    will-change: transform;
+    transform: translateX(100%);
+    transition: transform 0.25s ease-out;
+}
+
+#api-settings.visible,
+#preferences-settings.visible {
+    transform: translateX(0);
+}
+
+/* 减少布局抖动 */
+.api-card {
+    contain: layout style;
+}
+
+.chat-card {
+    contain: layout style;
+}
+
+/* 长列表优化 */
+.chat-cards,
+.api-cards {
+    /* 启用内容可见性优化 */
+    content-visibility: auto;
+    contain-intrinsic-size: 0 500px;
+}
+
+/* 主题切换优化 - 使用 CSS 变量动画 */
+:root {
+    transition: 
+        --cerebr-bg-color 0.2s ease-out,
+        --cerebr-text-color 0.2s ease-out,
+        --cerebr-message-user-bg 0.2s ease-out,
+        --cerebr-message-ai-bg 0.2s ease-out;
+}
+
+/* 减少移动端触摸延迟 */
+@media (pointer: coarse) {
+    button,
+    a,
+    [role="button"],
+    [role="menuitem"] {
+        touch-action: manipulation;
+    }
+}
+
+/* 打字指示器动画优化 */
+.typing-indicator {
+    will-change: opacity;
+}
+
+.typing-dot {
+    will-change: transform;
+    animation: typing-bounce 1.4s ease-in-out infinite;
+}
+
+.typing-dot:nth-child(1) { animation-delay: 0s; }
+.typing-dot:nth-child(2) { animation-delay: 0.2s; }
+.typing-dot:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes typing-bounce {
+    0%, 60%, 100% {
+        transform: translateY(0);
+    }
+    30% {
+        transform: translateY(-4px);
+    }
+}
+
+/* 思考过程展开动画优化 */
+.reasoning-content {
+    will-change: max-height, opacity;
+    transition: max-height 0.3s ease-out, opacity 0.2s ease-out;
+    overflow: hidden;
+}
+
+.reasoning-content.collapsed {
+    max-height: 0;
+    opacity: 0;
+}
+
+.reasoning-content.expanded {
+    max-height: none;
+    opacity: 1;
+}

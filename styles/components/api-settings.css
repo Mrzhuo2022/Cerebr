@@ -7,7 +7,6 @@
     bottom: 0;
     z-index: 1000;
     display: none;
-    overflow-y: auto;
     flex-direction: column;
     background: var(--cerebr-bg-color);
 }
@@ -28,46 +27,11 @@
     cursor: pointer;
     border-radius: 8px;
     position: relative;
-    margin-bottom: 12px;
+    margin-bottom: 10px;
     background: var(--cerebr-message-ai-bg);
     border: 1px solid var(--cerebr-card-border-color);
     transition: transform 0.2s ease, box-shadow 0.2s ease;
-    padding: 15px;
-}
-
-.settings-header {
-    padding: 16px;
-    display: flex;
-    align-items: center;
-    border-bottom: 1px solid var(--border-color);
-    background-color: var(--cerebr-bg-color);
-    position: sticky;
-    top: 0;
-    z-index: 1;
-}
-
-.back-button {
-    background: none;
-    border: none;
-    padding: 8px;
-    margin-right: 12px;
-    cursor: pointer;
-    color: var(--cerebr-text-color);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 6px;
-    transition: background-color 0.2s ease;
-}
-
-.back-button:hover {
-    background-color: var(--cerebr-message-user-bg);
-}
-
-.settings-title {
-    font-size: var(--cerebr-fs-16);
-    font-weight: 500;
-    color: var(--cerebr-text-color);
+    padding: 12px;
 }
 
 .api-card:hover,
@@ -126,14 +90,14 @@
 .api-form {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 10px;
     width: 100%;
 }
 
 .form-group {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 6px;
     width: 100%;
 }
 
@@ -141,12 +105,159 @@
 .system-prompt {
     width: 100%;
     box-sizing: border-box;
+    background: var(--cerebr-message-ai-bg);
+    border: 1px solid var(--cerebr-card-border-color);
+    padding: 8px 10px;
+    border-radius: 6px;
+    color: var(--cerebr-text-color);
+    font-size: var(--cerebr-fs-14);
+    transition: border-color 0.2s ease;
+}
+
+.system-prompt {
+    resize: vertical;
+    min-height: 70px;
+    line-height: 1.5;
+    font-family: inherit;
+}
+
+.form-group input:focus,
+.system-prompt:focus,
+.model-name:focus {
+    outline: none;
+    border-color: var(--cerebr-highlight-border-color);
+    box-shadow: 0 0 0 1px var(--cerebr-highlight-border-color);
 }
 
 .form-group-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    min-height: 24px;
+}
+
+/* 高级设置样式 */
+.advanced-settings {
+    margin-top: 4px;
+}
+
+.advanced-settings-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    user-select: none;
+    padding: 6px 0;
+    font-size: var(--cerebr-fs-12);
+    opacity: 0.8;
+}
+
+.advanced-settings-header:hover {
+    opacity: 1;
+}
+
+.toggle-icon {
+    transition: transform 0.2s ease;
+    font-size: 10px;
+}
+
+.advanced-settings-content {
+    margin-top: 8px;
+}
+
+.form-group-header .fetch-models-btn {
+    width: 24px;
+    height: 24px;
+    padding: 4px;
+}
+
+.form-group-header .fetch-models-btn.loading {
+    animation: spin 1s linear infinite;
+}
+
+.form-group-header .fetch-models-btn.loading svg {
+    display: none;
+}
+
+.form-group-header .fetch-models-btn.loading::after {
+    content: '';
+    position: absolute;
+    width: 12px;
+    height: 12px;
+    border: 2px solid currentColor;
+    border-top-color: transparent;
+    border-radius: 50%;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+.model-input-wrapper {
+    position: relative;
+    width: 100%;
+}
+
+/* 模型选择下拉框 */
+.model-select-wrapper {
+    position: relative;
+    width: 100%;
+}
+
+.model-select-wrapper::after {
+    content: '';
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 0;
+    height: 0;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 4px solid var(--cerebr-text-color);
+    pointer-events: none;
+    opacity: 0.6;
+}
+
+.model-name {
+    width: 100%;
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    background: var(--cerebr-message-ai-bg);
+    border: 1px solid var(--cerebr-card-border-color);
+    padding: 8px 10px;
+    padding-right: 30px;
+    border-radius: 6px;
+    color: var(--cerebr-text-color);
+    font-size: var(--cerebr-fs-14);
+    transition: border-color 0.2s ease;
+    cursor: pointer;
+}
+
+.model-name option {
+    background: var(--cerebr-message-ai-bg);
+    color: var(--cerebr-text-color);
+    padding: 8px 10px;
+}
+
+.model-name option:hover {
+    background: var(--cerebr-button-hover-bg);
+}
+
+.model-name option:disabled {
+    opacity: 0.5;
+}
+
+/* 确保选择框在暗黑模式下正确显示 */
+select.model-name {
+    background-image: none;
+}
+
+/* datalist下拉列表 - 浏览器会自动渲染 */
+.model-datalist {
+    display: none;
 }
 
 .form-group label {
@@ -154,18 +265,30 @@
     opacity: 0.8;
 }
 
-.form-group input {
-    background: var(--cerebr-message-ai-bg);
-    border: 1px solid var(--cerebr-card-border-color);
-    padding: 8px;
-    border-radius: 4px;
-    color: var(--cerebr-text-color);
-    font-size: var(--cerebr-fs-14);
-    transition: border-color 0.2s ease;
+/* API Key 包装器 */
+.api-key-wrapper {
+    position: relative;
+    width: 100%;
 }
 
-.form-group input:focus {
-    outline: none;
-    border-color: var(--cerebr-highlight-border-color);
-    box-shadow: 0 0 0 1px var(--cerebr-highlight-border-color);
+/* API Key 显示/隐藏按钮样式 */
+.toggle-api-key-btn svg {
+    stroke: currentColor;
+    fill: none;
+}
+
+.toggle-api-key-btn .eye-off-icon path[opacity] {
+    opacity: 0.3;
+}
+
+/* 高级设置内容样式 */
+.advanced-settings-content .setting-item {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.advanced-settings-content label {
+    font-size: var(--cerebr-fs-12);
+    opacity: 0.8;
 }

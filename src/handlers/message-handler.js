@@ -75,6 +75,47 @@ function createTypingIndicator() {
     return wrapper;
 }
 
+/**
+ * 创建网页来源标签
+ * @param {Object} source - 网页来源信息
+ * @param {string} source.url - 网页URL
+ * @param {string} source.title - 网页标题
+ * @returns {HTMLElement} 来源标签元素
+ */
+function createWebpageSourceTag(source) {
+    const tag = document.createElement('a');
+    tag.className = 'webpage-source-tag';
+    tag.href = source.url;
+    tag.target = '_blank';
+    tag.rel = 'noopener noreferrer';
+    tag.title = source.url;
+
+    // 网页图标
+    const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    icon.setAttribute('viewBox', '0 0 24 24');
+    icon.setAttribute('fill', 'none');
+    icon.setAttribute('stroke', 'currentColor');
+    icon.setAttribute('stroke-width', '2');
+    icon.setAttribute('stroke-linecap', 'round');
+    icon.setAttribute('stroke-linejoin', 'round');
+    icon.innerHTML = '<circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>';
+
+    // 标题文字
+    const title = document.createElement('span');
+    title.className = 'source-title';
+    title.textContent = source.title || new URL(source.url).hostname;
+
+    tag.appendChild(icon);
+    tag.appendChild(title);
+
+    // 阻止点击事件冒泡到消息元素
+    tag.addEventListener('click', (e) => {
+        e.stopPropagation();
+    });
+
+    return tag;
+}
+
 function enhanceCodeBlocks(root) {
     root.querySelectorAll('pre').forEach((pre) => {
         if (pre.dataset.cerebrCopyReady === '1') return;
@@ -169,6 +210,7 @@ function enhanceCodeBlocks(root) {
  * @param {HTMLElement} params.chatContainer - 聊天容器元素
  * @param {boolean} [params.skipHistory=false] - 是否跳过历史记录，skipHistory 的实际作用是：作为一个标志，告诉 appendMessage 函数，当前这条消息只是一个临时的、用于界面展示的通知，而不应该被当作正式的对话内容来处理。
  * @param {DocumentFragment} [params.fragment=null] - 文档片段（用于批量加载）
+ * @param {Object} [params.webpageSource=null] - 网页来源信息 {url, title}
  * @returns {HTMLElement} 创建的消息元素
  */
 export async function appendMessage({
@@ -176,7 +218,8 @@ export async function appendMessage({
     sender,
     chatContainer,
     skipHistory = false,
-    fragment = null
+    fragment = null,
+    webpageSource = null
 }) {
     ensureAutoScrollTracking(chatContainer);
     const messageDiv = document.createElement('div');
@@ -331,6 +374,12 @@ export async function appendMessage({
     const shouldStickToBottom = !fragment &&
         !chatContainer.__cerebrUserPausedAutoScroll &&
         isNearBottom(chatContainer);
+
+    // 如果是用户消息且有网页来源信息，添加来源标签
+    if (sender === 'user' && webpageSource?.url) {
+        const sourceTag = createWebpageSourceTag(webpageSource);
+        messageDiv.appendChild(sourceTag);
+    }
 
     // 如果提供了文档片段，添加到片段中；否则直接添加到聊天容器
     if (fragment) {

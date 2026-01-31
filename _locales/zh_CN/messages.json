@@ -33,6 +33,7 @@
   "title_api_settings": { "message": "API 设置" },
   "api_key_label": { "message": "API Key" },
   "api_key_placeholder": { "message": "输入 API Key" },
+  "api_toggle_key_aria": { "message": "显示/隐藏 API Key" },
   "base_url_label": { "message": "Base URL" },
   "base_url_placeholder": { "message": "输入 Base URL" },
   "model_name_label": { "message": "Model Name" },
@@ -41,6 +42,7 @@
   "api_delete_config_aria": { "message": "删除该配置" },
   "api_advanced_settings": { "message": "高级设置" },
   "api_system_prompt_label": { "message": "系统提示" },
+  "api_fetch_models_title": { "message": "获取模型列表" },
 
   "title_preferences": { "message": "偏好设置" },
   "preferences_version": { "message": "版本号" },
@@ -119,5 +121,10 @@
   "error_read_image_failed": { "message": "读取图片失败" },
   "error_parse_image_failed": { "message": "解析图片失败" },
   "error_not_image_file": { "message": "不是图片文件" },
-  "error_image_too_large": { "message": "图片过大，建议压缩或裁剪后再发送" }
+  "error_image_too_large": { "message": "图片过大，建议压缩或裁剪后再发送" },
+
+  "top_toolbar_aria": { "message": "顶部工具栏" },
+  "new_chat_quick_aria": { "message": "新建对话" },
+  "close_sidebar_aria": { "message": "关闭侧边栏" },
+  "context_menu_summarize": { "message": "总结网页内容" }
 }

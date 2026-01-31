@@ -2,7 +2,7 @@
 @import './base/variables.css';
 @import './base/reset.css';
 
-/* Utils */
+/* Utils - Animations */
 @import './utils/animations.css';
 
 /* Components */
@@ -19,8 +19,12 @@
 @import './components/api-settings.css';
 @import './components/preferences.css';
 @import './components/webpage-menu.css';
+@import './components/toolbar.css';
 @import './components/chat-container.css';
 @import './components/toast.css';
+
+/* Utils - Performance (加载顺序要在 components 之后以正确覆盖) */
+@import './utils/performance.css';
 
 @import '../htmd/styles/math.css';
 @import '../htmd/styles/table.css';

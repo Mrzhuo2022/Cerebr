@@ -117,11 +117,30 @@ function createAPICard({
     const advancedSettingsHeader = template.querySelector('.advanced-settings-header');
     const advancedSettingsContent = template.querySelector('.advanced-settings-content');
     const toggleIcon = template.querySelector('.toggle-icon');
+    const fetchModelsBtn = template.querySelector('.fetch-models-btn');
+    const toggleApiKeyBtn = template.querySelector('.toggle-api-key-btn');
 
     // 设置初始值
     apiKeyInput.value = config.apiKey || '';
-    baseUrlInput.value = config.baseUrl || 'https://api.0-0.pro/v1/chat/completions';
-    modelNameInput.value = config.modelName || 'gpt-4o';
+    baseUrlInput.value = config.baseUrl || '';
+
+    // 设置模型选择框的值
+    const initialModel = config.modelName || '';
+    // 检查选项是否已存在，不存在则添加
+    let modelExists = false;
+    for (const option of modelNameInput.options) {
+        if (option.value === initialModel) {
+            modelExists = true;
+            break;
+        }
+    }
+    if (!modelExists && initialModel) {
+        const newOption = document.createElement('option');
+        newOption.value = initialModel;
+        newOption.textContent = initialModel;
+        modelNameInput.appendChild(newOption);
+    }
+    modelNameInput.value = initialModel;
 
     // 设置系统提示的默认值
     systemPromptInput.value = config.advancedSettings?.systemPrompt || '';
@@ -147,6 +166,19 @@ function createAPICard({
             advancedSettings,
         };
     };
+
+    // API Key 显示/隐藏切换功能
+    let isApiKeyVisible = false;
+    toggleApiKeyBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        isApiKeyVisible = !isApiKeyVisible;
+        apiKeyInput.type = isApiKeyVisible ? 'text' : 'password';
+        const eyeIcon = toggleApiKeyBtn.querySelector('.eye-icon');
+        const eyeOffIcon = toggleApiKeyBtn.querySelector('.eye-off-icon');
+        eyeIcon.style.display = isApiKeyVisible ? 'none' : 'block';
+        eyeOffIcon.style.display = isApiKeyVisible ? 'block' : 'none';
+    });
 
     // 添加高级设置的展开/折叠功能
     advancedSettingsHeader.addEventListener('click', (e) => {
@@ -174,10 +206,15 @@ function createAPICard({
     });
 
     // 其他字段：实时更新并自动保存（由外层实现节流/同步策略）
-    [apiKeyInput, baseUrlInput, modelNameInput].forEach((input) => {
+    [apiKeyInput, baseUrlInput].forEach((input) => {
         input.addEventListener('input', () => {
             onChange(index, buildNextConfig(), { kind: 'apiFields' });
         });
+    });
+
+    // 模型选择框使用 change 事件
+    modelNameInput.addEventListener('change', () => {
+        onChange(index, buildNextConfig(), { kind: 'apiFields', flush: true });
     });
 
     // 阻止输入框和按钮点击事件冒泡
@@ -186,8 +223,8 @@ function createAPICard({
         e.preventDefault();
     };
 
-    // 为输入框添加点击事件阻止冒泡
-    [apiKeyInput, baseUrlInput, modelNameInput, systemPromptInput].forEach(input => {
+    // 为输入框添加点击事件阻止冒泡（select 不需要阻止）
+    [apiKeyInput, baseUrlInput, systemPromptInput].forEach(input => {
         input.addEventListener('click', stopPropagation);
         input.addEventListener('focus', stopPropagation);
     });
@@ -195,8 +232,8 @@ function createAPICard({
     // 添加输入法状态跟踪
     let isComposing = false;
 
-    // 监听输入法开始
-    [apiKeyInput, baseUrlInput, modelNameInput, systemPromptInput].forEach(input => {
+    // 监听输入法开始（不需要监听 select）
+    [apiKeyInput, baseUrlInput, systemPromptInput].forEach(input => {
         input.addEventListener('compositionstart', () => {
             isComposing = true;
         });
@@ -207,8 +244,76 @@ function createAPICard({
         });
     });
 
+    // 获取模型列表按钮
+    fetchModelsBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+
+        const baseUrl = baseUrlInput.value.trim();
+        const apiKey = apiKeyInput.value.trim();
+
+        if (!baseUrl) {
+            alert('请先输入 Base URL');
+            return;
+        }
+
+        if (!apiKey) {
+            alert('请先输入 API Key');
+            return;
+        }
+
+        // 显示加载状态
+        fetchModelsBtn.classList.add('loading');
+
+        try {
+            const models = await fetchModelsFromAPI(baseUrl, apiKey);
+
+            if (models.length === 0) {
+                alert('未找到可用模型');
+                return;
+            }
+
+            // 保存当前选中的值
+            const currentValue = modelNameInput.value;
+
+            // 清空并填充 select 选项
+            modelNameInput.innerHTML = '';
+            models.forEach((modelId) => {
+                const option = document.createElement('option');
+                option.value = modelId;
+                option.textContent = modelId;
+                modelNameInput.appendChild(option);
+            });
+
+            // 尝试恢复之前选中的值
+            let valueRestored = false;
+            for (const option of modelNameInput.options) {
+                if (option.value === currentValue) {
+                    modelNameInput.value = currentValue;
+                    valueRestored = true;
+                    break;
+                }
+            }
+
+            // 如果之前的值不在新列表中，选择第一个模型
+            if (!valueRestored && models.length > 0) {
+                modelNameInput.value = models[0];
+            }
+
+            console.log(`[API Card] 成功获取 ${models.length} 个模型`);
+
+            // 触发变更事件保存配置
+            onChange(index, buildNextConfig(), { kind: 'apiFields', flush: true });
+        } catch (error) {
+            console.error('[API Card] 获取模型失败:', error);
+            alert(`获取模型失败: ${error.message}\n\n请检查 Base URL 和 API Key 是否正确`);
+        } finally {
+            fetchModelsBtn.classList.remove('loading');
+        }
+    });
+
     // 修改键盘事件处理（普通输入框）
-    [apiKeyInput, baseUrlInput, modelNameInput].forEach(input => {
+    [apiKeyInput, baseUrlInput].forEach(input => {
         input.addEventListener('keydown', async (e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
                 if (isComposing) {
@@ -233,6 +338,23 @@ function createAPICard({
                 onSelect(template, index);
             }
         });
+    });
+
+    // 模型选择框的键盘事件处理
+    modelNameInput.addEventListener('keydown', async (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            e.stopPropagation();
+            const maybePromise = onChange(index, buildNextConfig(), { kind: 'apiFields', flush: true });
+            if (maybePromise && typeof maybePromise.then === 'function') {
+                try {
+                    await maybePromise;
+                } catch {
+                    // ignore
+                }
+            }
+            onSelect(template, index);
+        }
     });
 
     // 修改键盘事件处理（系统提示 textarea：回车先 flush 再返回）
@@ -268,7 +390,7 @@ function createAPICard({
     });
 
     // 监听输入框变化
-    [apiKeyInput, baseUrlInput, modelNameInput].forEach(input => {
+    [apiKeyInput, baseUrlInput].forEach(input => {
         input.addEventListener('change', () => {
             if (input === baseUrlInput) {
                 baseUrlInput.value = normalizeChatCompletionsUrl(baseUrlInput.value) || baseUrlInput.value.trim();
@@ -293,14 +415,98 @@ function createAPICard({
 
     // 选择配置
     template.addEventListener('click', (e) => {
-        // 如果点击的是输入框或按钮，不触发选择
-        if (e.target.matches('input') || e.target.matches('.card-button') || e.target.closest('.card-button')) {
+        // 如果点击的是输入框、按钮或选择框，不触发选择
+        if (e.target.matches('input') ||
+            e.target.matches('select') ||
+            e.target.matches('textarea') ||
+            e.target.matches('.card-button') ||
+            e.target.closest('.card-button')) {
             return;
         }
         onSelect(template, index);
     });
 
     return template;
+}
+
+/**
+ * 从API获取可用模型列表
+ * @param {string} baseUrl - API基础URL
+ * @param {string} apiKey - API密钥
+ * @returns {Promise<Array<string>>} 模型ID列表
+ */
+async function fetchModelsFromAPI(baseUrl, apiKey) {
+    try {
+        // 将 /chat/completions 转换为 /models
+        let modelsUrl = baseUrl;
+
+        // 处理各种可能的URL格式
+        if (baseUrl.endsWith('/chat/completions')) {
+            modelsUrl = baseUrl.replace('/chat/completions', '/models');
+        } else if (baseUrl.endsWith('/v1/chat/completions')) {
+            modelsUrl = baseUrl.replace('/v1/chat/completions', '/v1/models');
+        } else if (baseUrl.includes('/chat/completions')) {
+            modelsUrl = baseUrl.replace(/\/chat\/completions.*$/, '/models');
+        } else {
+            // 尝试智能推断
+            try {
+                const url = new URL(baseUrl);
+                const pathParts = url.pathname.split('/').filter(p => p);
+                // 移除最后的 chat/completions
+                const basePath = pathParts.slice(0, -2).join('/');
+                modelsUrl = `${url.origin}${basePath ? '/' + basePath : ''}/models`;
+            } catch {
+                // 如果URL解析失败，尝试简单替换
+                modelsUrl = baseUrl.replace(/\/chat\/completions.*$/, '/models');
+            }
+        }
+
+        console.log('[API] Fetching models from:', modelsUrl);
+
+        const response = await fetch(modelsUrl, {
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${apiKey}`,
+                'Content-Type': 'application/json'
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        console.log('[API] Models response:', data);
+
+        let models = [];
+
+        // OpenAI API格式: { object: "list", data: [{ id: "...", ... }] }
+        if (data.data && Array.isArray(data.data)) {
+            models = data.data.map(model => model.id).filter(id => id);
+        }
+        // 其他可能的格式
+        else if (Array.isArray(data.models)) {
+            models = data.models.map(model => model.id || model).filter(id => id);
+        }
+        else if (Array.isArray(data)) {
+            models = data.map(model => model.id || model).filter(id => id);
+        }
+
+        // 排序：优先显示gpt开头和其他常见模型
+        models.sort((a, b) => {
+            const aIsGPT = a.startsWith('gpt-');
+            const bIsGPT = b.startsWith('gpt-');
+            if (aIsGPT && !bIsGPT) return -1;
+            if (!aIsGPT && bIsGPT) return 1;
+            return a.localeCompare(b);
+        });
+
+        console.log(`[API] Found ${models.length} models`);
+        return models;
+    } catch (error) {
+        console.error('获取模型列表失败:', error);
+        throw error;
+    }
 }
 
 /**

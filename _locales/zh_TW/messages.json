@@ -33,6 +33,7 @@
   "title_api_settings": { "message": "API 設定" },
   "api_key_label": { "message": "API Key" },
   "api_key_placeholder": { "message": "輸入 API Key" },
+  "api_toggle_key_aria": { "message": "顯示/隱藏 API Key" },
   "base_url_label": { "message": "Base URL" },
   "base_url_placeholder": { "message": "輸入 Base URL" },
   "model_name_label": { "message": "Model Name" },
@@ -41,6 +42,7 @@
   "api_delete_config_aria": { "message": "刪除此設定" },
   "api_advanced_settings": { "message": "進階設定" },
   "api_system_prompt_label": { "message": "系統提示" },
+  "api_fetch_models_title": { "message": "取得模型列表" },
 
   "title_preferences": { "message": "偏好設定" },
   "preferences_version": { "message": "程式版本" },
@@ -119,5 +121,10 @@
   "error_read_image_failed": { "message": "讀取圖片失敗" },
   "error_parse_image_failed": { "message": "解析圖片失敗" },
   "error_not_image_file": { "message": "不是圖片檔案" },
-  "error_image_too_large": { "message": "圖片過大，建議壓縮或裁剪後再傳送" }
+  "error_image_too_large": { "message": "圖片過大，建議壓縮或裁剪後再傳送" },
+
+  "top_toolbar_aria": { "message": "頂部工具列" },
+  "new_chat_quick_aria": { "message": "新建對話" },
+  "close_sidebar_aria": { "message": "關閉側邊欄" },
+  "context_menu_summarize": { "message": "總結網頁內容" }
 }

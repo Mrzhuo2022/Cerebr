@@ -2,9 +2,9 @@
 #chat-container {
     flex: 1;
     overflow-y: scroll;
-    padding: 15px;
-    padding-top: calc(15px + env(safe-area-inset-top));
-    padding-bottom: calc(60px + env(safe-area-inset-bottom) + var(--chat-bottom-extra-padding, 0px));
+    padding: 12px;
+    padding-top: 12px;
+    padding-bottom: calc(12px + 100px + env(safe-area-inset-bottom) + var(--chat-bottom-extra-padding, 0px));
     scrollbar-width: none;
     -ms-overflow-style: none;
     min-height: 100%;
@@ -15,7 +15,7 @@
     position: relative;
     height: 100%;
     box-sizing: border-box;
-    margin-top: var(--chat-top-margin, 0px);
+    margin-top: calc(44px + env(safe-area-inset-top));
     transition: margin-top 0.3s ease;
 }
 
@@ -24,7 +24,7 @@
 }
 
 .keyboard-visible #chat-container {
-    padding-bottom: calc(60px + env(safe-area-inset-bottom) + var(--keyboard-height, 0px) + var(--chat-bottom-extra-padding, 0px));
+    padding-bottom: calc(12px + 116px + env(safe-area-inset-bottom) + var(--keyboard-height, 0px) + var(--chat-bottom-extra-padding, 0px));
 }
 
 .chat-switch-placeholder {
@@ -55,7 +55,7 @@
 #scroll-to-bottom {
     position: fixed;
     right: 16px;
-    bottom: calc(72px + env(safe-area-inset-bottom) + var(--chat-bottom-extra-padding, 0px));
+    bottom: calc(112px + env(safe-area-inset-bottom) + var(--chat-bottom-extra-padding, 0px));
     width: 44px;
     height: 44px;
     border-radius: 999px;
@@ -77,7 +77,7 @@
 }
 
 .keyboard-visible #scroll-to-bottom {
-    bottom: calc(72px + env(safe-area-inset-bottom) + var(--keyboard-height, 0px) + var(--chat-bottom-extra-padding, 0px));
+    bottom: calc(128px + env(safe-area-inset-bottom) + var(--keyboard-height, 0px) + var(--chat-bottom-extra-padding, 0px));
 }
 
 #scroll-to-bottom.visible {

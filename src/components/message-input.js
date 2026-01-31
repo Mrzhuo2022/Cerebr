@@ -7,6 +7,10 @@ import { adjustTextareaHeight, createImageTag, showToast } from '../utils/ui.js'
 import { handleImageDrop, readImageFileAsDataUrl } from '../utils/image.js';
 import { syncChatBottomExtraPadding } from '../utils/scroll.js';
 import { t } from '../utils/i18n.js';
+import { browserAdapter } from '../utils/storage-adapter.js';
+import { chatManager } from '../utils/chat-manager.js';
+import { setWebpageSwitchesForChat } from '../utils/webpage-switches.js';
+import { loadChatContent } from './chat-list.js';
 
 // 跟踪输入法状态
 let isComposing = false;
@@ -959,7 +963,9 @@ export function moveCaretToEnd(element) {
  * @param {Object} config - 配置对象
  */
 export function handleWindowMessage(event, config) {
-    const { messageInput, newChatButton, uiConfig } = config;
+    const { messageInput, newChatButton, uiConfig, chatContainer, chatManager: chatManagerConfig } = config;
+    // 优先使用传入的 chatManager，如果没有则使用导入的
+    const chatManagerInstance = chatManagerConfig || chatManager;
 
     if (event.data.type === 'DROP_IMAGE') {
         const imageData = event.data.imageData;
@@ -1015,9 +1021,114 @@ export function handleWindowMessage(event, config) {
             placeholder: event.data.placeholder,
             timeout: event.data.timeout
         });
+    } else if (event.data.type === 'TAB_ACTIVATED') {
+        // 标签页被激活，重新加载当前标签页的对话
+        if (chatManagerInstance && chatManagerInstance._resolveCurrentChatIdStorageKey) {
+          chatManagerInstance._resolveCurrentChatIdStorageKey().then(() => {
+            const currentChat = chatManagerInstance.getCurrentChat();
+            const chatContainerEl = chatContainer || document.getElementById('chat-container');
+            if (currentChat && chatContainerEl) {
+              loadChatContent(currentChat, chatContainerEl);
+            }
+          }).catch(err => {
+            console.error('重新加载标签页对话失败:', err);
+          });
+        }
     } else if (event.data.type === 'NEW_CHAT') {
         // 模拟点击新对话按钮
         newChatButton.click();
         messageInput.focus();
+    } else if (event.data.type === 'SUMMARIZE_FROM_CONTEXT_MENU') {
+        const { selectionText, pageInfo } = event.data;
+
+        // 处理右键菜单总结请求
+        (async () => {
+            try {
+                // 获取聊天容器（如果没有从 config 传入，则从 DOM 获取）
+                const chatContainerEl = chatContainer || document.getElementById('chat-container');
+                
+                // 为每个网页创建新的对话
+                const pageTitle = pageInfo?.title || '网页总结';
+                const truncatedTitle = `${pageTitle.substring(0, 30)}${pageTitle.length > 30 ? '...' : ''}`;
+                const newChat = chatManagerInstance.createNewChat(truncatedTitle);
+
+                // 切换到新对话
+                await chatManagerInstance.switchChat(newChat.id);
+                if (chatContainerEl) {
+                    chatContainerEl.innerHTML = '';
+                }
+
+                // 通知对话列表有新对话
+                document.dispatchEvent(new CustomEvent('cerebr:chatCreated', { 
+                    detail: { chatId: newChat.id } 
+                }));
+
+                // 更新对话列表中的选中状态
+                document.querySelectorAll('.chat-card').forEach(card => {
+                    if (card.dataset.chatId === newChat.id) {
+                        card.classList.add('selected');
+                    } else {
+                        card.classList.remove('selected');
+                    }
+                });
+
+                // 设置当前网页开关
+                if (pageInfo?.tabId) {
+                    await setWebpageSwitchesForChat(newChat.id, { [pageInfo.tabId]: true });
+                    console.log('[Summarize] 已为新对话设置网页内容:', pageInfo.title);
+                }
+
+                // 清空输入框
+                clearMessageInput(messageInput, uiConfig);
+
+                // 生成总结提示词（不在文本中包含网页信息，通过标签显示）
+                let prompt = '';
+                if (selectionText && selectionText.trim().length > 0) {
+                    // 有选中文本
+                    prompt = `请总结以下选中内容：\n\n---\n${selectionText}\n---\n`;
+                } else {
+                    // 没有选中文本，只总结当前网页内容
+                    prompt = '请总结当前网页内容，输出结构化要点。';
+                }
+
+                // 将网页信息存储到对话的元数据中，以便在显示消息时使用
+                if (pageInfo?.url) {
+                    newChat.webpageSource = {
+                        url: pageInfo.url,
+                        title: pageInfo.title || '',
+                        tabId: pageInfo.tabId
+                    };
+                    chatManagerInstance.saveChats();
+                }
+
+                // 设置输入框内容
+                messageInput.textContent = prompt;
+
+                // 触发输入事件以调整高度
+                messageInput.dispatchEvent(new Event('input', { bubbles: true }));
+
+                // 聚焦输入框
+                messageInput.focus();
+
+                // 自动触发发送
+                setTimeout(() => {
+                    const enterEvent = new KeyboardEvent('keydown', {
+                        bubbles: true,
+                        cancelable: true,
+                        key: 'Enter',
+                        code: 'Enter',
+                        keyCode: 13,
+                        which: 13,
+                        shiftKey: false
+                    });
+                    messageInput.dispatchEvent(enterEvent);
+                }, 150);
+
+            } catch (err) {
+                console.error('[Summarize] 创建新对话失败:', err);
+            }
+        })();
+
+        return;
     }
 }
