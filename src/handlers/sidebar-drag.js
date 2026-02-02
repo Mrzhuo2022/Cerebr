@@ -26,7 +26,8 @@ export function initSidebarBackgroundDrag(chatContainer) {
         if (!el) return false;
         if (el.closest('.message')) return false;
         if (el.closest('#scroll-to-bottom')) return false;
-        if (el.closest('#top-toolbar')) return false;
+        // 移除对 #top-toolbar 的排除，允许从顶部工具栏拖动
+        // 但仍然排除按钮等交互元素
         if (el.closest('#settings-button, #settings-menu, #context-menu, a, button, input, textarea, select')) return false;
         return true;
     };

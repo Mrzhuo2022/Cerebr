@@ -282,7 +282,6 @@ class CerebrSidebar {
   applySidebarWidth() {
     if (!this.sidebar) return;
     this.sidebar.style.width = `${this.sidebarWidth}px`;
-    this.applySidebarPosition();
   }
 
   async loadPosition() {
@@ -292,23 +291,23 @@ class CerebrSidebar {
       const left = Number(pos?.left);
       const top = Number(pos?.top);
 
-      // 验证位置值是否合理
       if (Number.isFinite(left) && Number.isFinite(top)) {
-        // 检查位置是否在合理范围内（考虑窗口大小可能变化）
-        const maxLeft = window.innerWidth + 100;  // 允许一些超出
-        const maxTop = window.innerHeight + 100;
-        const minLeft = -500;
-        const minTop = -500;
+        const width = clampSidebarWidth(this.sidebarWidth, this.defaultSidebarWidth);
+        const height = Math.max(120, window.innerHeight - 40);
+        const maxLeft = window.innerWidth - width + 100;
+        const maxTop = window.innerHeight - height + 100;
+        const minLeft = -100;
+        const minTop = -100;
 
-        // 如果位置明显不合理，清除保存的值
         if (left < minLeft || left > maxLeft || top < minTop || top > maxTop) {
-          console.warn('[Sidebar] 保存的位置不合理，将使用默认位置:', { left, top });
-          // 清除不合理的保存位置
+          console.warn('[Sidebar] 保存的位置不合理，将使用默认位置');
           try {
             await chrome.storage.local.remove(SIDEBAR_POSITION_KEY);
           } catch {
             // ignore
           }
+          this.sidebarLeft = null;
+          this.sidebarTop = null;
         } else {
           this.sidebarLeft = left;
           this.sidebarTop = top;
@@ -379,11 +378,20 @@ class CerebrSidebar {
   applySidebarPosition() {
     if (!this.sidebar) return;
 
-    const fallbackLeft = window.innerWidth - clampSidebarWidth(this.sidebarWidth, this.defaultSidebarWidth) - 20;
+    const width = clampSidebarWidth(this.sidebarWidth, this.defaultSidebarWidth);
+    const fallbackLeft = window.innerWidth - width - 20;
     const fallbackTop = 20;
 
-    const rawLeft = Number.isFinite(this.sidebarLeft) ? this.sidebarLeft : fallbackLeft;
-    const rawTop = Number.isFinite(this.sidebarTop) ? this.sidebarTop : fallbackTop;
+    let rawLeft = fallbackLeft;
+    let rawTop = fallbackTop;
+
+    if (Number.isFinite(this.sidebarLeft)) {
+      rawLeft = this.sidebarLeft;
+    }
+    if (Number.isFinite(this.sidebarTop)) {
+      rawTop = this.sidebarTop;
+    }
+
     const { left, top } = this.clampSidebarPosition(rawLeft, rawTop);
 
     this.sidebarLeft = left;
@@ -411,9 +419,19 @@ class CerebrSidebar {
 
   dragBy(dx, dy) {
     if (!this.sidebar || !this.dragging) return;
-    const nextLeft = (Number.isFinite(this.sidebarLeft) ? this.sidebarLeft : 0) + dx;
-    const nextTop = (Number.isFinite(this.sidebarTop) ? this.sidebarTop : 0) + dy;
+
+    // 如果 sidebarLeft/sidebarTop 还没有初始化，先从当前 DOM 样式读取
+    if (!Number.isFinite(this.sidebarLeft) || !Number.isFinite(this.sidebarTop)) {
+      const currentLeft = parseFloat(this.sidebar.style.left) || 0;
+      const currentTop = parseFloat(this.sidebar.style.top) || 0;
+      this.sidebarLeft = currentLeft;
+      this.sidebarTop = currentTop;
+    }
+
+    const nextLeft = this.sidebarLeft + dx;
+    const nextTop = this.sidebarTop + dy;
     const { left, top } = this.clampSidebarPosition(nextLeft, nextTop);
+
     this.sidebarLeft = left;
     this.sidebarTop = top;
     this.sidebar.style.left = `${left}px`;
@@ -480,7 +498,6 @@ class CerebrSidebar {
 
   async initializeSidebar() {
     try {
-      // console.log('开始初始化侧边栏');
       const container = document.createElement('cerebr-root');
       this.container = container;
 
@@ -488,10 +505,7 @@ class CerebrSidebar {
       Object.defineProperty(container, 'remove', {
         configurable: false,
         writable: false,
-        value: () => {
-          console.log('阻止移除侧边栏');
-          return false;
-        }
+        value: () => false
       });
 
       // 使用closed模式的shadowRoot以增加隔离性
@@ -549,16 +563,17 @@ class CerebrSidebar {
           top: 0;
           left: 0;
           right: 0;
-          height: 12px;
-          z-index: 2;
+          height: 20px;
+          z-index: 10;
           background: transparent;
+          pointer-events: none;
         }
         .cerebr-sidebar__resizer {
           position: absolute;
-          top: 0;
+          top: 40px;
           left: 0;
           width: 10px;
-          height: 100%;
+          height: calc(100% - 40px);
           cursor: ew-resize;
           z-index: 3;
           touch-action: none;
@@ -593,10 +608,7 @@ class CerebrSidebar {
       Object.defineProperty(this.sidebar, 'remove', {
         configurable: false,
         writable: false,
-        value: () => {
-          console.log('阻止移除侧边栏');
-          return false;
-        }
+        value: () => false
       });
 
       const header = document.createElement('div');
@@ -636,7 +648,6 @@ class CerebrSidebar {
           if (mutation.type === 'childList') {
             const removedNodes = Array.from(mutation.removedNodes);
             if (removedNodes.includes(container)) {
-              console.log('检测到侧边栏被移除，正在恢复...');
               root.appendChild(container);
             }
           }
@@ -670,15 +681,11 @@ class CerebrSidebar {
         });
       }
 
-      // console.log('侧边栏已添加到文档');
-
       this.setupEventListeners(resizer);
 
-      // 使用 requestAnimationFrame 确保状态已经应用
       requestAnimationFrame(() => {
         this.sidebar.classList.add('initialized');
         this.initialized = true;
-        // console.log('侧边栏初始化完成');
       });
     } catch (error) {
       console.error('初始化侧边栏失败:', error);
@@ -819,9 +826,6 @@ class CerebrSidebar {
   }
 
   setupDragAndDrop() {
-    // console.log('初始化拖放功能');
-
-    // 存储最后一次拖动的图片信息（仅在确实拖入侧边栏后再取数据）
     let lastDraggedImage = null;
 
     // 检查是否在侧边栏范围内的函数
@@ -913,18 +917,13 @@ class CerebrSidebar {
 let sidebar;
 try {
   sidebar = new CerebrSidebar();
-  // console.log('侧边栏实例已创建');
 } catch (error) {
   console.error('创建侧边栏实例失败:', error);
 }
 
 let inFlightPageContentPromise = null;
 
-// 修改消息监听器
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    // console.log('content.js 收到消息:', message.type);
-
-    // 处理 PING 消息
     if (message.type === 'PING') {
       sendResponse({
         type: 'PONG',
@@ -951,10 +950,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return true;
     }
 
-	    // 处理获取页面内容请求
-	    if (message.type === 'GET_PAGE_CONTENT_INTERNAL') {
-	        // console.log('收到获取页面内容请求');
-	        if (inFlightPageContentPromise) {
+    if (message.type === 'GET_PAGE_CONTENT_INTERNAL') {
+        if (inFlightPageContentPromise) {
 	            inFlightPageContentPromise.then(sendResponse).catch(() => sendResponse(null));
 	            return true;
 	        }
@@ -1054,17 +1051,11 @@ function sendInitMessage(retryCount = 0) {
   const maxRetries = 10;
   const retryDelay = 1000;
 
-  // console.log(`尝试发送初始化消息，第 ${retryCount + 1} 次尝试`);
-
   chrome.runtime.sendMessage({
     type: 'CONTENT_LOADED',
     url: window.location.href
-  }).then(response => {
-    // console.log('Background 响应:', response);
   }).catch(error => {
-    console.log('发送消息失败:', error);
     if (retryCount < maxRetries) {
-      console.log(`${retryDelay}ms 后重试...`);
       setTimeout(() => sendInitMessage(retryCount + 1), retryDelay);
     } else {
       console.error('达最大重试次数，初始化消息发送失败');
@@ -1082,20 +1073,9 @@ if (document.readyState === 'loading') {
 
 window.addEventListener('error', (event) => {
   if (event.message && event.message.includes('ResizeObserver loop')) {
-    // console.debug('忽略 ResizeObserver 警告:', event.message);
-    return; // 不记录为错误
+    return;
   }
   console.error('全局错误:', event.error);
-  // 添加更多错误信息记录
-  console.error('错误详情:', {
-    message: event.message,
-    filename: event.filename,
-    lineno: event.lineno,
-    colno: event.colno,
-    type: event.type,
-    timeStamp: event.timeStamp,
-    eventPhase: event.eventPhase
-  });
 });
 
 window.addEventListener('unhandledrejection', (event) => {
@@ -1103,9 +1083,8 @@ window.addEventListener('unhandledrejection', (event) => {
 });
 
 
-// 修改 extractPageContent 函数
 const PAGE_TEXT_CACHE_TTL_MS = 15_000;
-let lastExtractedPage = null; // { url, title, content, createdAt }
+let lastExtractedPage = null;
 
 function isYouTubeHost(hostname) {
   if (!hostname) return false;
@@ -1215,38 +1194,26 @@ async function extractYouTubeTranscriptText() {
 }
 
 async function extractPageContent(skipWaitContent = false) {
-  // console.log('extractPageContent 开始提取页面内容');
-
-  // 检查是否是PDF或者iframe中的PDF
   let pdfUrl = null;
   if (document.contentType === 'application/pdf' ||
       (window.location.href.includes('.pdf') ||
        document.querySelector('iframe[src*="pdf.js"]') ||
        document.querySelector('iframe[src*=".pdf"]'))) {
-    // console.log('检测到PDF文件，尝试提取PDF内容');
     pdfUrl = window.location.href;
 
-    // 如果是iframe中的PDF，尝试提取实际的PDF URL
     const pdfIframe = document.querySelector('iframe[src*="pdf.js"]') || document.querySelector('iframe[src*=".pdf"]');
     if (pdfIframe) {
       const iframeSrc = pdfIframe.src;
-      // 尝试从iframe src中提取实际的PDF URL
       const urlMatch = iframeSrc.match(/[?&]file=([^&]+)/);
       if (urlMatch) {
         pdfUrl = decodeURIComponent(urlMatch[1]);
-        console.log('从iframe中提取到PDF URL:', pdfUrl);
       }
     }
 
   }
 
-  // 等待内容加载和网络请求完成 - 如果 skipWaitContent 为 true，则跳过等待
-  // 当 skipWaitContent 为 true 时，表示是按需提取
   if (skipWaitContent) {
-    // console.log('按需提取内容 (skipWaitContent=true)');
-    // 如果是 PDF
     if (pdfUrl) {
-      // console.log('按需提取 PDF 内容');
       const pdfText = await extractTextFromPDF(pdfUrl);
       if (pdfText) {
         return {
@@ -1281,13 +1248,12 @@ async function extractPageContent(skipWaitContent = false) {
             frameContent += content;
           }
         } catch (e) {
-          // console.log('无法访问该iframe内容:', e.message);
+          // ignore
         }
       }
 
       const tempContainer = document.body.cloneNode(true);
 
-      // 将表单元素的实时 value 同步到克隆的节点中，以便 innerText 可以获取到
       const originalFormElements = document.body.querySelectorAll('textarea, input');
       const clonedFormElements = tempContainer.querySelectorAll('textarea, input');
       originalFormElements.forEach((el, index) => {
@@ -1310,19 +1276,16 @@ async function extractPageContent(skipWaitContent = false) {
       mainContent = mainContent.replace(/\s+/g, ' ').replace(/\n\s*\n/g, '\n').trim();
     }
 
-    // YouTube：字幕单独返回（由侧边栏决定如何拼接/缓存）
     let youtubeTranscript = null;
     if (isYouTubeHost(window.location.hostname)) {
       youtubeTranscript = await extractYouTubeTranscriptText();
     }
 
     if (mainContent.length < 40 && !youtubeTranscript?.transcript) {
-      console.log('提取的内容太少，返回 null');
       return null;
     }
 
     const gptTokenCount = await estimateGPTTokens(mainContent);
-    console.log('页面内容提取完成，内容长度:', mainContent.length, 'GPT tokens:', gptTokenCount);
 
     if (!usedCache) {
       lastExtractedPage = {
@@ -1341,9 +1304,6 @@ async function extractPageContent(skipWaitContent = false) {
     };
   }
 
-  // 当 skipWaitContent 为 false (默认)，表示是自动调用。
-  // 在这种模式下，我们不进行任何耗时操作，特别是对于PDF。
-  // console.log('自动调用 extractPageContent，不执行提取 (skipWaitContent=false)');
   return null;
 }
 
@@ -1458,7 +1418,6 @@ async function extractTextFromPDF(url) {
 
     // 发送更新placeholder消息
     const sendPlaceholderUpdate = (message, timeout = 0) => {
-      // console.log('发送placeholder更新:', message);
       iframe.contentWindow.postMessage({
         type: 'UPDATE_PLACEHOLDER',
         placeholder: message,
@@ -1468,29 +1427,24 @@ async function extractTextFromPDF(url) {
 
     sendPlaceholderUpdate('正在下载PDF文件...');
 
-    console.log('开始下载PDF:', url);
-    // 首先获取PDF文件的初始信息
     const initResponse = await sendRuntimeMessage({
       action: 'downloadPDF',
       url: url
     });
 
     if (!initResponse.success) {
-      console.error('PDF初始化失败，响应:', initResponse);
       sendPlaceholderUpdate('PDF下载失败', 2000);
       throw new Error('PDF初始化失败');
     }
 
     requestId = initResponse.requestId;
     const { totalChunks, totalSize, chunkSize } = initResponse;
-    // console.log(`PDF文件大小: ${totalSize} bytes, 总块数: ${totalChunks}`);
 
     if (!requestId) {
       sendPlaceholderUpdate('PDF下载失败', 2000);
       throw new Error('PDF初始化失败：缺少 requestId');
     }
 
-    // 分块接收数据（直接写入预分配缓冲区，避免中间数组与重复拷贝）
     const effectiveChunkSize = Number.isFinite(chunkSize) && chunkSize > 0 ? chunkSize : (4 * 1024 * 1024);
     const completeData = new Uint8Array(totalSize);
     let receivedBytes = 0;
@@ -1536,9 +1490,7 @@ async function extractTextFromPDF(url) {
 
     sendPlaceholderUpdate('正在解析PDF文件...');
 
-    // console.log('开始解析PDF文件');
     try {
-      // 为每次解析创建独立 worker，避免复用导致的卡死/状态污染
       if (pdfjsLib.PDFWorker) {
         worker = new pdfjsLib.PDFWorker({ name: `cerebr-pdf-${Date.now()}` });
       }
@@ -1548,17 +1500,13 @@ async function extractTextFromPDF(url) {
 
     loadingTask = pdfjsLib.getDocument(worker ? { data: completeData, worker } : { data: completeData });
     pdf = await loadingTask.promise;
-    // console.log('PDF加载成功，总页数:', pdf.numPages);
 
     let fullText = '';
-    // 遍历所有页面
     for (let i = 1; i <= pdf.numPages; i++) {
       sendPlaceholderUpdate(`正在提取文本 (${i}/${pdf.numPages})...`);
-      // console.log(`开始处理第 ${i}/${pdf.numPages} 页`);
       const page = await pdf.getPage(i);
       const textContent = await page.getTextContent();
       const pageText = textContent.items.map(item => item.str).join(' ');
-      // console.log(`第 ${i} 页提取的文本长度:`, pageText.length);
       fullText += pageText + '\n';
       try {
         page.cleanup();
@@ -1567,15 +1515,12 @@ async function extractTextFromPDF(url) {
       }
     }
 
-    // 计算GPT分词数量
     const gptTokenCount = await estimateGPTTokens(fullText);
-    console.log('PDF文本提取完成，总文本长度:', fullText.length, '预计GPT tokens:', gptTokenCount);
     sendPlaceholderUpdate(`PDF处理完成 (约 ${gptTokenCount} tokens)`, 2000);
     setCachedPdfText(url, fullText);
     return fullText;
   } catch (error) {
     console.error('PDF处理过程中出错:', error);
-    console.error('错误堆栈:', error.stack);
     if (sidebar && sidebar.sidebar) {
       const iframe = sidebar.sidebar.querySelector('.cerebr-sidebar__iframe');
       if (iframe) {
@@ -1628,15 +1573,11 @@ async function extractTextFromPDF(url) {
 }
 
 
-// 添加GPT分词估算函数
 async function estimateGPTTokens(text) {
   try {
-    // 简单估算：平均每4个字符约为1个token
-    // 这是一个粗略估计，实际token数可能会有所不同
     const estimatedTokens = Math.ceil(text.length / 4.25625);
     return estimatedTokens;
   } catch (error) {
-    console.error('计算GPT tokens时出错:', error);
     return 0;
   }
 }
