@@ -55,10 +55,18 @@ export class ChatManager {
     }
 
     _getMostRecentChat() {
-        const chats = Array.from(this.chats.values());
-        if (chats.length === 0) return null;
-        chats.sort((a, b) => this._getChatActivityTimeMs(b) - this._getChatActivityTimeMs(a));
-        return chats[0] || null;
+        let mostRecentChat = null;
+        let mostRecentTime = -1;
+
+        for (const chat of this.chats.values()) {
+            const activityTime = this._getChatActivityTimeMs(chat);
+            if (activityTime > mostRecentTime) {
+                mostRecentTime = activityTime;
+                mostRecentChat = chat;
+            }
+        }
+
+        return mostRecentChat;
     }
 
     async _resolveCurrentChatIdStorageKey() {
@@ -400,10 +408,22 @@ export class ChatManager {
         const chat = this.chats.get(chatId);
         if (!chat) return null;
         const refs = Array.isArray(chat?.[YT_TRANSCRIPT_REF_FIELD]) ? chat[YT_TRANSCRIPT_REF_FIELD] : [];
-        const matches = refs.filter((r) => r?.videoId === videoId && r?.key);
-        if (matches.length === 0) return null;
-        matches.sort((a, b) => (b?.updatedAt || 0) - (a?.updatedAt || 0));
-        return matches[0];
+        let latestMatch = null;
+        let latestUpdatedAt = -1;
+
+        for (const ref of refs) {
+            if (ref?.videoId !== videoId || !ref?.key) {
+                continue;
+            }
+
+            const updatedAt = Number(ref?.updatedAt) || 0;
+            if (updatedAt >= latestUpdatedAt) {
+                latestUpdatedAt = updatedAt;
+                latestMatch = ref;
+            }
+        }
+
+        return latestMatch;
     }
 
     getCurrentChat() {

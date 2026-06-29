@@ -498,21 +498,27 @@ export function selectCard({
     onIndexChange,
     onSave,
     cardSelector = '.api-card',
+    currentIndex = null,
     onSelect
 }) {
     // 更新选中索引
     onIndexChange(index);
 
-    // 保存配置
-    onSave();
+    const cardNodes = Array.from(document.querySelectorAll(cardSelector))
+        .filter((card) => !card.classList.contains('template'));
+
+    if (currentIndex !== index) {
+        // 保存配置
+        onSave();
+    }
 
     // 更新UI状态
-    document.querySelectorAll(cardSelector).forEach(card => {
+    cardNodes.forEach((card) => {
         card.classList.remove('selected');
     });
 
     // 选中当前卡片
-    const selectedCard = document.querySelectorAll(cardSelector)[index];
+    const selectedCard = cardNodes[index] || null;
     if (selectedCard) {
         selectedCard.classList.add('selected');
     }

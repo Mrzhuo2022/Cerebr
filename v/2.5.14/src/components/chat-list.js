@@ -6,6 +6,7 @@ import { setWebpageSwitchesForChat } from '../utils/webpage-switches.js';
 
 let renderToken = 0;
 let chatContentToken = 0;
+const chatSearchTextCache = new Map();
 
 function scheduleWork(callback) {
     if (typeof requestIdleCallback === 'function') {
@@ -25,6 +26,43 @@ function createChatSwitchPlaceholder() {
     return wrapper;
 }
 
+function extractMessageSearchText(message) {
+    const content = message?.content;
+    if (typeof content === 'string') {
+        return content;
+    }
+    if (!Array.isArray(content)) {
+        return '';
+    }
+    return content
+        .filter((part) => part?.type === 'text' && typeof part?.text === 'string')
+        .map((part) => part.text)
+        .join('\n');
+}
+
+function getChatSearchText(chat) {
+    const chatId = String(chat?.id || '');
+    const version = [
+        chat?.title || '',
+        chat?.updatedAt || '',
+        Array.isArray(chat?.messages) ? chat.messages.length : 0
+    ].join('\u0000');
+    const cached = chatSearchTextCache.get(chatId);
+    if (cached?.version === version) {
+        return cached.text;
+    }
+
+    const title = String(chat?.title || '');
+    const messages = Array.isArray(chat?.messages)
+        ? chat.messages.map(extractMessageSearchText).join('\n')
+        : '';
+    const text = `${title}\n${messages}`.toLowerCase();
+    if (chatId) {
+        chatSearchTextCache.set(chatId, { version, text });
+    }
+    return text;
+}
+
 export function renderChatListIncremental(chatManager, chatCards, searchTerm = '') {
     const template = chatCards.querySelector('.chat-card.template');
     if (!template) return;
@@ -33,18 +71,9 @@ export function renderChatListIncremental(chatManager, chatCards, searchTerm = '
     const currentChatId = chatManager.getCurrentChat()?.id;
     const allChats = chatManager.getAllChats();
 
-    const filteredChats = allChats.filter(chat => {
-        if (!searchTerm) return true;
-        const titleMatch = chat.title.toLowerCase().includes(lowerCaseSearchTerm);
-        const contentMatch = chat.messages.some(message =>
-            message.content &&
-            (
-                (typeof message.content === 'string' && message.content.toLowerCase().includes(lowerCaseSearchTerm)) ||
-                (Array.isArray(message.content) && message.content.some(part => part.type === 'text' && part.text.toLowerCase().includes(lowerCaseSearchTerm)))
-            )
-        );
-        return titleMatch || contentMatch;
-    });
+    const filteredChats = searchTerm
+        ? allChats.filter((chat) => getChatSearchText(chat).includes(lowerCaseSearchTerm))
+        : allChats;
 
     const myToken = ++renderToken;
     let index = 0;

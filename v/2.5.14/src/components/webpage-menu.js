@@ -469,6 +469,21 @@ function getUniqueTabsByUrl(tabs) {
     });
 }
 
+async function mapWithConcurrency(items, limit, mapper) {
+    const results = new Array(items.length);
+    let nextIndex = 0;
+    const workerCount = Math.min(Math.max(1, limit), items.length);
+
+    await Promise.all(Array.from({ length: workerCount }, async () => {
+        while (nextIndex < items.length) {
+            const index = nextIndex++;
+            results[index] = await mapper(items[index], index);
+        }
+    }));
+
+    return results;
+}
+
 async function populateWebpageContentMenu(webpageContentMenu, { onLayoutChange } = {}) {
     webpageContentMenu.innerHTML = `<div class="webpage-menu-loading">${t('webpage_tabs_loading')}</div>`;
     webpageContentMenu.__searchQueryNormalized = '';
@@ -820,9 +835,14 @@ export async function getEnabledTabsContent() {
     // 2. 过滤掉重复的 URL
     const finalTabs = getUniqueTabsByUrl(allTabs);
 
-    for (const tab of finalTabs) {
-        const isEnabled = switches && switches[tab.id] !== undefined ? switches[tab.id] : (tab.id === currentTab.id);
-        if (isEnabled) {
+    const currentTabId = currentTab?.id;
+    const enabledTabs = finalTabs.filter((tab) => (
+        switches && switches[tab.id] !== undefined
+            ? switches[tab.id]
+            : tab.id === currentTabId
+    ));
+    const pageEntries = await mapWithConcurrency(enabledTabs, 4, async (tab) => {
+        try {
             let isConnected = await browserAdapter.isTabConnected(tab.id);
 
             // 如果未连接，尝试重新加载并再次检查
@@ -834,69 +854,73 @@ export async function getEnabledTabsContent() {
                 console.log(`Webpage-menu: getEnabledTabsContent Reloaded tab ${tab.id} ${tab.title} (${tab.url}) isConnected: ${isConnected}.`);
             }
 
-            if (isConnected) {
+            if (!isConnected) {
+                return null;
+            }
+
+            console.log(`Webpage-menu: getting content ${tab.id} ${tab.title} (${tab.url}).`);
+            const pageData = await browserAdapter.sendMessage({
+                type: 'GET_PAGE_CONTENT_FROM_SIDEBAR',
+                tabId: tab.id,
+                skipWaitContent: true // 明确要求立即提取
+            });
+
+            if (!pageData || (!pageData.content && !pageData.youtubeTranscript?.transcript)) {
+                return null;
+            }
+
+            let content = pageData.content || '';
+
+            // YouTube 字幕：优先使用本次提取结果；失败时回退到“当前对话已缓存的字幕”
+            const videoId = tab?.url ? getYouTubeVideoIdFromUrl(tab.url) : null;
+            const isYouTubeTab = (() => {
+                if (!tab?.url) return false;
                 try {
-                    let pageData = null;
-                    console.log(`Webpage-menu: getting content ${tab.id} ${tab.title} (${tab.url}).`);
-                    pageData = await browserAdapter.sendMessage({
-                        type: 'GET_PAGE_CONTENT_FROM_SIDEBAR',
-                        tabId: tab.id,
-                        skipWaitContent: true // 明确要求立即提取
-                    });
+                    return isYouTubeHost(new URL(tab.url).hostname);
+                } catch {
+                    return false;
+                }
+            })();
 
-                    if (pageData && (pageData.content || pageData.youtubeTranscript?.transcript)) {
-                        let content = pageData.content || '';
+            if (videoId && isYouTubeTab) {
+                const youtubeTranscript = pageData.youtubeTranscript;
+                let transcriptText = youtubeTranscript?.transcript || null;
+                const lang = youtubeTranscript?.lang || null;
+                const key = transcriptText
+                    ? makeYouTubeTranscriptKey({ videoId, lang })
+                    : (chatManager.getYouTubeTranscriptRef(activeChatId, videoId)?.key || null);
 
-                        // YouTube 字幕：优先使用本次提取结果；失败时回退到“当前对话已缓存的字幕”
-                        const videoId = tab?.url ? getYouTubeVideoIdFromUrl(tab.url) : null;
-                        const isYouTubeTab = (() => {
-                            if (!tab?.url) return false;
-                            try {
-                                return isYouTubeHost(new URL(tab.url).hostname);
-                            } catch {
-                                return false;
-                            }
-                        })();
-
-                        if (videoId && isYouTubeTab) {
-                            const youtubeTranscript = pageData.youtubeTranscript;
-                            let transcriptText = youtubeTranscript?.transcript || null;
-                            const lang = youtubeTranscript?.lang || null;
-                            const key = transcriptText
-                                ? makeYouTubeTranscriptKey({ videoId, lang })
-                                : (chatManager.getYouTubeTranscriptRef(activeChatId, videoId)?.key || null);
-
-                            if (transcriptText && key) {
-                                await saveYouTubeTranscript({ key, videoId, lang, text: transcriptText });
-                                if (activeChatId) {
-                                    chatManager.addYouTubeTranscriptRef(activeChatId, { key, videoId, lang });
-                                }
-                            }
-
-                            if (!transcriptText && key) {
-                                transcriptText = await loadYouTubeTranscriptText(key);
-                            }
-
-                            if (transcriptText) {
-                                content = `${content}\n\n${t('youtube_transcript_prefix')}\n${transcriptText}`.trim();
-                            }
-                        }
-
-                        if (!combinedContent) {
-                            combinedContent = { pages: [] };
-                        }
-                        combinedContent.pages.push({
-                            title: pageData.title,
-                            url: tab.url,
-                            content,
-                            isCurrent: tab.id === currentTab.id
-                        });
+                if (transcriptText && key) {
+                    await saveYouTubeTranscript({ key, videoId, lang, text: transcriptText });
+                    if (activeChatId) {
+                        chatManager.addYouTubeTranscriptRef(activeChatId, { key, videoId, lang });
                     }
-                } catch (e) {
-                    console.warn(`Could not get content from tab ${tab.id} (${tab.url}): ${e}`);
+                }
+
+                if (!transcriptText && key) {
+                    transcriptText = await loadYouTubeTranscriptText(key);
+                }
+
+                if (transcriptText) {
+                    content = `${content}\n\n${t('youtube_transcript_prefix')}\n${transcriptText}`.trim();
                 }
             }
+
+            return {
+                title: pageData.title,
+                url: tab.url,
+                content,
+                isCurrent: tab.id === currentTabId
+            };
+        } catch (e) {
+            console.warn(`Could not get content from tab ${tab.id} (${tab.url}): ${e}`);
+            return null;
         }
+    });
+
+    const pages = pageEntries.filter(Boolean);
+    if (pages.length > 0) {
+        combinedContent = { pages };
     }
     return combinedContent;
 }

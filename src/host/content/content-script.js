@@ -1502,7 +1502,24 @@ export function bootContentScript() {
 
 // 修改 extractPageContent 函数
 const PAGE_TEXT_CACHE_TTL_MS = 15_000;
-let lastExtractedPage = null; // { url, title, content, createdAt }
+let lastExtractedPage = null; // { url, title, content, createdAt, mutationVersion }
+let pageTextCacheMutationVersion = 0;
+let pageTextCacheMutationObserver = null;
+
+function getPageTextCacheMutationVersion() {
+  if (!pageTextCacheMutationObserver && document.body && typeof MutationObserver === 'function') {
+    pageTextCacheMutationObserver = new MutationObserver(() => {
+      pageTextCacheMutationVersion++;
+    });
+    pageTextCacheMutationObserver.observe(document.body, {
+      childList: true,
+      characterData: true,
+      subtree: true
+    });
+  }
+
+  return pageTextCacheMutationVersion;
+}
 
 function isYouTubeHost(hostname) {
   if (!hostname) return false;
@@ -1658,12 +1675,14 @@ async function extractPageContent(skipWaitContent = false) {
     // 非 PDF：短 TTL 缓存，减少重复提取导致的卡顿（但 YouTube 字幕仍会每次尝试获取）
     const now = Date.now();
     const currentUrl = window.location.href;
+    const mutationVersion = getPageTextCacheMutationVersion();
 
     let mainContent = '';
     let usedCache = false;
 
     if (lastExtractedPage &&
         lastExtractedPage.url === currentUrl &&
+        lastExtractedPage.mutationVersion === mutationVersion &&
         now - lastExtractedPage.createdAt < PAGE_TEXT_CACHE_TTL_MS) {
       mainContent = lastExtractedPage.content || '';
       usedCache = true;
@@ -1699,11 +1718,9 @@ async function extractPageContent(skipWaitContent = false) {
           '[role="complementary"]', '[role="navigation"]',
           '.sidebar', '.nav', '.footer', '.header'
       ];
-      selectorsToRemove.forEach(selector => {
-          tempContainer.querySelectorAll(selector).forEach(element => element.remove());
-      });
+      tempContainer.querySelectorAll(selectorsToRemove.join(',')).forEach(element => element.remove());
 
-      mainContent = tempContainer.innerText + frameContent;
+      mainContent = (tempContainer.innerText || tempContainer.textContent || '') + frameContent;
       mainContent = mainContent.replace(/\s+/g, ' ').replace(/\n\s*\n/g, '\n').trim();
     }
 
@@ -1738,7 +1755,8 @@ async function extractPageContent(skipWaitContent = false) {
         title: document.title,
         url: currentUrl,
         content: mainContent,
-        createdAt: now
+        createdAt: now,
+        mutationVersion
       };
     }
 

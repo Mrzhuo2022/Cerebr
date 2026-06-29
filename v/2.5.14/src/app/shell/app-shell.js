@@ -2158,6 +2158,7 @@ async function onDomReady() {
             },
             onSave: saveAPIConfigs,
             cardSelector: '.api-card',
+            currentIndex: selectedConfigIndex,
             onSelect: () => {
                 // 关闭API设置面板
                 apiSettings?.classList?.remove('visible');

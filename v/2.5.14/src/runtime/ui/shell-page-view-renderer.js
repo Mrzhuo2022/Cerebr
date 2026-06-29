@@ -997,7 +997,7 @@ function describeListReorder(items = [], orderedItemIds = [], movedItemId = '') 
     };
 }
 
-function findListDropTarget(listElement, pointer = {}, draggingId = '') {
+function findListDropTarget(listElement, pointer = {}, draggingId = '', rowsCache = null) {
     if (!(listElement instanceof HTMLElement)) {
         return null;
     }
@@ -1017,7 +1017,9 @@ function findListDropTarget(listElement, pointer = {}, draggingId = '') {
         };
     }
 
-    const rows = Array.from(listElement.querySelectorAll('.cerebr-plugin-page-list__item'));
+    const rows = Array.isArray(rowsCache) && rowsCache.length > 0
+        ? rowsCache
+        : Array.from(listElement.querySelectorAll('.cerebr-plugin-page-list__item'));
     const eligibleRows = rows.filter((row) => normalizeString(row.dataset.itemId) !== normalizeString(draggingId));
     if (eligibleRows.length === 0) {
         return null;
@@ -1390,6 +1392,16 @@ function renderList({
         let dropTargetId = '';
         let dropBeforeTarget = false;
         let pointerDragState = null;
+        let listRows = Array.from(list.querySelectorAll('.cerebr-plugin-page-list__item'));
+        const rowByItemId = new Map(listRows.map((row) => [normalizeString(row.dataset?.itemId), row]));
+        const syncCachedRowOrder = (orderedItemIds = []) => {
+            const nextRows = orderedItemIds
+                .map((itemId) => rowByItemId.get(normalizeString(itemId)))
+                .filter(Boolean);
+            if (nextRows.length === listRows.length) {
+                listRows = nextRows;
+            }
+        };
 
         const cancelCommittedOrderSync = () => {
             if (!committedOrderRaf) {
@@ -1417,6 +1429,7 @@ function renderList({
         const restoreInitialListOrder = () => {
             if (initialOrderedItemIds.length > 0) {
                 applyListOrder(list, initialOrderedItemIds);
+                syncCachedRowOrder(initialOrderedItemIds);
             }
         };
 
@@ -1455,6 +1468,7 @@ function renderList({
             }
 
             applyListOrder(list, reorderPreview.orderedItemIds);
+            syncCachedRowOrder(reorderPreview.orderedItemIds);
             if (showsDropIndicator) {
                 applyListDropMarker(list, target.row, target.beforeTarget);
             } else {
@@ -1495,6 +1509,7 @@ function renderList({
             if (useCommittedSync) {
                 committedOrderedItemIds = [...reorderResult.orderedItemIds];
                 applyListOrder(list, committedOrderedItemIds);
+                syncCachedRowOrder(committedOrderedItemIds);
                 scheduleCommittedOrderSync();
             } else {
                 committedOrderedItemIds = [];
@@ -1569,7 +1584,7 @@ function renderList({
                 clientX: event.clientX,
                 clientY: event.clientY,
                 target: event.target,
-            }, draggingId);
+            }, draggingId, listRows);
             if (!target) {
                 clearListDropMarkers(list);
                 return;
@@ -1676,7 +1691,7 @@ function renderList({
                     clientX: event.clientX,
                     clientY: event.clientY,
                     target: event.target,
-                }, draggingId);
+                }, draggingId, listRows);
                 if (!target) {
                     clearListDropMarkers(list);
                     return;
@@ -1697,7 +1712,7 @@ function renderList({
                     clientX: event.clientX,
                     clientY: event.clientY,
                     target: event.target,
-                }, draggingId);
+                }, draggingId, listRows);
                 const committed = emitCurrentReorder(target, { useCommittedSync: true });
                 if (!committed) {
                     restoreInitialListOrder();
